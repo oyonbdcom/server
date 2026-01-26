@@ -158,6 +158,7 @@ const updatePatient = async (
     throw new ApiError(httpStatus.BAD_REQUEST, 'User ID is required');
   }
 
+  console.log(userId);
   // 1. Find the patient first to get their ACTUAL userId and id
   const existingPatient = await prisma.patient.findFirst({
     where: {

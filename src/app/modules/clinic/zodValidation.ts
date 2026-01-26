@@ -1,30 +1,57 @@
 import { z } from 'zod';
+
 import { userRoleEnum } from '../../../constants/constant';
 
 export const clinicSchema = z.object({
-  id: z.string().cuid(),
-  userId: z.string().cuid(),
+  id: z.string().cuid().optional(),
+  userId: z.string().cuid().optional(),
+
   user: z.object({
-    name: z.string().min(2),
-    email: z.string().email(),
-    password: z.string().min(8),
+    name: z
+      .string()
+      .min(2, 'নাম অন্তত ২ অক্ষরের হতে হবে')
+      .regex(/^[ঀ-৿\s]+$/, 'নাম অবশ্যই বাংলায় হতে হবে'), // শুধুমাত্র বাংলা
+
+    email: z.string().email('সঠিক ইমেইল দিন'),
+    password: z.string().min(8, 'পাসওয়ার্ড অন্তত ৮ অক্ষরের হতে হবে'),
     deactivate: z.boolean().default(true),
     image: z.string().default('null'),
     emailVerified: z.boolean().optional(),
-    role: userRoleEnum,
+    role: userRoleEnum, // আপনার UserRole এনাম
   }),
-  phoneNumber: z.string().min(11, 'Phone number is too short'),
-  description: z.string().nullable(),
+
+  phoneNumber: z
+    .string()
+    .min(11, 'ফোন নম্বর অন্তত ১১ ডিজিটের হতে হবে')
+    .regex(/^[0-9+]+$/, 'সঠিক ফোন নম্বর দিন'),
+
+  description: z
+    .string()
+    .regex(/^[ঀ-৿\s.,।/()/-]*$/, 'বর্ণনা বাংলায় লিখুন')
+    .nullable(),
+
   openingHour: z.string().nullable(),
   establishedYear: z.number().nullable(),
   active: z.boolean().default(false),
-  website: z.string().nullable(),
-  address: z.string().nullable(),
+  website: z.string().url('সঠিক ইউআরএল দিন').nullable().or(z.literal('')),
+
+  // ঠিকানা, জেলা এবং শহর বাংলায় রেস্ট্রিক্ট করা হয়েছে
+  address: z
+    .string()
+    .regex(/^[ঀ-৿\s.,।/()/-]*$/, 'ঠিকানা বাংলায় লিখুন')
+    .nullable(),
+
   district: z.string().nullable(),
-  city: z.string().nullable(),
-  country: z.string().min(1, 'Country is required'),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+
+  city: z
+    .string()
+    .regex(/^[ঀ-৿\s]*$/, 'শহরের নাম বাংলায় লিখুন')
+    .nullable(),
+
+  country: z.string().min(1, 'দেশ নির্বাচন করা বাধ্যতামূলক').default('Bangladesh'),
+
+  createdAt: z.coerce.date().optional(),
+  updatedAt: z.coerce.date().optional(),
 });
 
 // --- CREATE CLINIC SCHEMA ---

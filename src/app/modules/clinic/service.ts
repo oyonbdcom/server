@@ -6,6 +6,7 @@ import { IOptions, paginationCalculator } from '../../../helper/pagination';
 import { IGenericResponse } from '../../../interface/common';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
+import { createSlug } from '../../../utils/createSlug';
 import { CLINIC_SELECT, IClinicFilterRequest } from './constant';
 import {
   IClinicResponse,
@@ -16,36 +17,48 @@ import {
 
 const createClinic = async (clinicData: ICreateClinicRequest): Promise<IClinicResponse | null> => {
   const defaultPassword = 'Password@123';
+
+  // ১. স্ল্যাগ তৈরি করা (নাম থেকে)
+  if (!clinicData.user?.name) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'ক্লিনিকের নাম প্রদান করা বাধ্যতামূলক!');
+  }
+  const slug = createSlug(clinicData.user.name);
+
+  // ২. পাসওয়ার্ড হ্যাশিং
   const hashedPassword = await bcrypt.hash(clinicData.user?.password || defaultPassword, 10);
 
+  // ৩. ডাটাবেজে ক্লিনিক তৈরি
   const clinic = await prisma.clinic.create({
     data: {
       user: {
         create: {
-          name: clinicData.user?.name,
-          email: clinicData.user?.email,
+          name: clinicData.user.name,
+          email: clinicData.user.email,
           password: hashedPassword,
           role: UserRole.CLINIC,
-
-          image: clinicData.user?.image,
+          image: clinicData.user.image,
         },
       },
+      // স্ল্যাগ এখানে যুক্ত করা হলো
+      slug: slug,
+
       phoneNumber: clinicData.phoneNumber,
-      active: clinicData?.active,
+      active: clinicData?.active ?? false,
       description: clinicData?.description,
       openingHour: clinicData?.openingHour,
       address: clinicData?.address,
       establishedYear: clinicData?.establishedYear,
-
       district: clinicData.district,
       city: clinicData.city,
       country: clinicData.country ?? 'Bangladesh',
     },
     select: CLINIC_SELECT,
   });
+
   if (!clinic) {
-    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to create doctor');
+    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'ক্লিনিক প্রোফাইল তৈরি করতে সমস্যা হয়েছে');
   }
+
   return clinic;
 };
 
@@ -128,48 +141,64 @@ const getClinicStats = async (): Promise<IClinicStats> => {
     inactive: inactiveCount,
   };
 };
-export const getClinicById = async (userId: string): Promise<IClinicResponse> => {
-  if (!userId) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'userid is required');
+export const getClinicById = async (identifier: string): Promise<IClinicResponse> => {
+  if (!identifier) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'আইডি বা স্ল্যাগ প্রদান করা বাধ্যতামূলক');
   }
-  // Fetch Clinic info
-  const clinic = await prisma.clinic.findUnique({
-    where: { userId },
+
+  // findFirst ব্যবহার করা হয়েছে যাতে OR কন্ডিশন কাজ করে
+  const clinic = await prisma.clinic.findFirst({
+    where: {
+      OR: [
+        { userId: identifier }, // চেক করবে এটা কি ইউজার আইডি?
+        { slug: identifier }, // নাকি এটা ক্লিনিক স্ল্যাগ?
+      ],
+    },
     select: CLINIC_SELECT,
   });
 
   if (!clinic) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Clinic not found');
+    throw new ApiError(httpStatus.NOT_FOUND, 'ক্লিনিক খুঁজে পাওয়া যায়নি!');
   }
 
-  return clinic;
+  return clinic as IClinicResponse;
 };
-
 const updateClinic = async (
   userId: string,
   clinicData: IUpdateClinicRequest,
 ): Promise<IClinicResponse> => {
-  // Prepare user update data
+  // ১. ইউজার আছে কি না আগে চেক করে নিন এবং বর্তমান নাম সংগ্রহ করুন
+  const existingUser = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { clinic: true },
+  });
 
+  if (!existingUser) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'ব্যবহারকারী খুঁজে পাওয়া যায়নি!');
+  }
+
+  // ২. স্ল্যাগ হ্যান্ডেলিং লজিক
+  // যদি নতুন নাম পাঠানো হয় তবে সেটি থেকে স্ল্যাগ তৈরি হবে,
+  // নতুবা আগের নাম বা আগের স্ল্যাগটিই থাকবে।
+  const newName = clinicData.user?.name;
+  const currentSlug = existingUser.clinic?.slug;
+  const slug = newName ? createSlug(newName) : currentSlug;
+
+  // ৩. ইউজার আপডেট ডাটা তৈরি (পাসওয়ার্ড হ্যাশিং সহ)
   const userData: any = {};
   if (clinicData.user) {
     if (clinicData.user.password) {
       userData.password = await bcrypt.hash(clinicData.user.password, 10);
     }
     if (clinicData.user.name) userData.name = clinicData.user.name;
-    if (clinicData.user.deactivate) userData.deactivate = clinicData.user.deactivate;
+    if (clinicData.user.deactivate !== undefined) userData.deactivate = clinicData.user.deactivate;
     if (clinicData.user.email) userData.email = clinicData.user.email;
+    if (clinicData.user.image) userData.image = clinicData.user.image;
     if (clinicData.user.emailVerified !== undefined)
       userData.emailVerified = clinicData.user.emailVerified;
-    if (clinicData.user.image) userData.image = clinicData.user.image;
   }
 
-  // Check if the user exists
-  const existingUser = await prisma.user.findUnique({ where: { id: userId } });
-  if (!existingUser) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'User not found!');
-  }
-
+  // ৪. Upsert অপারেশন (Slug সহ)
   const clinic = await prisma.clinic.upsert({
     where: { userId },
     create: {
@@ -180,8 +209,9 @@ const updateClinic = async (
       country: clinicData.country ?? 'Bangladesh',
       phoneNumber: clinicData.phoneNumber ?? '',
       establishedYear: clinicData.establishedYear,
+      slug: slug || createSlug(existingUser.name), // নতুন স্ল্যাগ অথবা আগের নাম থেকে তৈরি স্ল্যাগ
       description: clinicData.description,
-      active: clinicData?.active,
+      active: clinicData?.active ?? false,
       openingHour: clinicData.openingHour,
       website: clinicData.website,
     },
@@ -196,23 +226,13 @@ const updateClinic = async (
       description: clinicData.description,
       openingHour: clinicData.openingHour,
       establishedYear: clinicData.establishedYear,
-
+      slug: slug, // এখানে আপডেট করা স্ল্যাগ বসবে
       user: {
-        update: {
-          deactivate: clinicData.user?.deactivate,
-          name: clinicData.user?.name,
-          image: clinicData.user?.image,
-        },
+        update: userData, // আলাদা করে নিচে আপডেট না করে এখানেই করা ভালো
       },
     },
     select: CLINIC_SELECT,
   });
-  if (Object.keys(userData).length > 0) {
-    await prisma.user.update({
-      where: { id: userId },
-      data: userData,
-    });
-  }
 
   return clinic;
 };

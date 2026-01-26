@@ -9,6 +9,7 @@ export const CLINIC_SELECT = {
   establishedYear: true,
   address: true,
   district: true,
+  slug: true,
   city: true,
   country: true,
   active: true,
@@ -53,11 +54,10 @@ export const CLINIC_SELECT = {
       clinic: {
         select: {
           id: true,
-
-          averageRating: true,
-          address: true,
           city: true,
-          district: true,
+          averageRating: true,
+          active: true,
+
           user: { select: { name: true, image: true, id: true } },
         },
       },

@@ -9,6 +9,7 @@ export interface IDoctorResponse {
   userId: string;
   department: string | null;
   specialization: string | null;
+  slug: string | null;
   bio: string | null;
   gender: Gender | null;
   district: string | null;
@@ -51,9 +52,9 @@ export interface IDoctorStats {
 
 export interface IDoctorMembership {
   id: string;
-  fee: number;
-  maxAppointments: number;
-  discount: number;
+  fee: string;
+  maxAppointments: string;
+  discount: string;
   schedules: any[];
   clinic: {
     address: string;

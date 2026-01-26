@@ -48,7 +48,7 @@ const getPatientById = catchAsync(async (req, res) => {
 const updatePatient = catchAsync(async (req, res) => {
   const requesterId = req?.user?.id; // Logged-in person
   const requesterRole = req?.user?.role; // Get role from auth middleware
-  const { targetId } = req.params as { targetId: string };
+  const { id } = req.params as { id: string };
 
   if (!requesterId) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'You are not authorized');
@@ -56,7 +56,7 @@ const updatePatient = catchAsync(async (req, res) => {
 
   // Determine which ID to use for the update
   // If ADMIN, use the ID from params. If PATIENT, use their own session ID.
-  const idToUpdate = requesterRole === 'ADMIN' && targetId ? targetId : requesterId;
+  const idToUpdate = requesterRole === 'ADMIN' && id ? id : requesterId;
 
   // result now takes the ID we decided on
   const result = await PatientService.updatePatient(idToUpdate, req.body);

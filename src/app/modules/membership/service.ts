@@ -12,16 +12,24 @@ export const createMembership = async (
   payload: CreateMembershipInput,
 ): Promise<IMembershipResponse> => {
   const { doctorId, fee, maxAppointments, discount } = payload;
+
+  // ১. ক্লিনিক প্রোফাইল চেক
   const exitingClinic = await prisma.clinic.findFirst({
     where: { userId },
   });
+
   if (!exitingClinic) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'First setup your profile !');
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      'অনুগ্রহ করে আগে আপনার ক্লিনিক প্রোফাইল সেটআপ সম্পন্ন করুন!',
+    );
   }
+
+  // ২. ডুপ্লিকেট মেম্বারশিপ চেক
   const existingMembership = await prisma.membership.findFirst({
     where: {
       doctorId,
-      clinicId: exitingClinic?.id,
+      clinicId: exitingClinic.id, // Optional chaining সরিয়ে দেওয়া হয়েছে কারণ উপরে চেক করা হয়েছে
     },
     select: { id: true },
   });
@@ -29,48 +37,53 @@ export const createMembership = async (
   if (existingMembership) {
     throw new ApiError(
       httpStatus.CONFLICT,
-      'Membership between this doctor and clinic already exists',
+      'এই চিকিৎসক ইতিমধ্যে আপনার ক্লিনিকে মেম্বার হিসেবে যুক্ত আছেন।',
     );
   }
 
-  // ---- CREATE MEMBERSHIP ----
-  const membership = await prisma.membership.create({
-    data: {
-      doctorId,
-      clinicId: exitingClinic?.id,
-      fee,
-      maxAppointments,
-      discount,
-    },
-  });
+  // ৩. মেম্বারশিপ তৈরি
+  try {
+    const membership = await prisma.membership.create({
+      data: {
+        doctorId,
+        clinicId: exitingClinic.id,
+        fee,
+        maxAppointments,
+        discount,
+      },
+    });
 
-  return membership;
+    return membership;
+  } catch (error) {
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'সদস্যপদ যুক্ত করার সময় একটি ত্রুটি ঘটেছে, পুনরায় চেষ্টা করুন।',
+    );
+  }
 };
 
+// ১. মেম্বারশিপ লিস্ট দেখা
 export const getClinicMemberships = async (
   userId: string,
   options: IOptions,
 ): Promise<IGenericResponse<IMembershipResponse[]> | null> => {
   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
 
-  // 1. Check user exists
   const existingUser = await prisma.user.findUnique({
     where: { id: userId },
     select: { clinic: { select: { id: true } } },
   });
 
   if (!existingUser) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
+    throw new ApiError(httpStatus.NOT_FOUND, 'ব্যবহারকারী খুঁজে পাওয়া যায়নি');
   }
 
-  // 2. Check user has a clinic
-  if (!existingUser.clinic || !existingUser.clinic.id) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'User does not belong to any clinic');
+  if (!existingUser.clinic) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'এই ব্যবহারকারীর কোনো ক্লিনিক প্রোফাইল নেই');
   }
 
   const clinicId = existingUser.clinic.id;
 
-  // 4. Fetch memberships
   const memberships = await prisma.membership.findMany({
     where: { clinicId },
     include: {
@@ -82,105 +95,86 @@ export const getClinicMemberships = async (
           department: true,
           position: true,
           hospital: true,
-          averageRating: true,
-          reviewsCount: true,
-          country: true,
-          gender: true,
-          user: {
-            select: {
-              name: true,
-              email: true,
-              image: true,
-              id: true,
-            },
-          },
+          user: { select: { name: true, email: true, image: true, id: true } },
         },
       },
       schedules: true,
     },
+    skip,
+    take: limit,
+    orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
   });
 
-  // 5. Count total
-  const total = await prisma.membership.count({
-    where: { clinicId },
-  });
+  const total = await prisma.membership.count({ where: { clinicId } });
 
   return {
-    meta: {
-      page: Number(page),
-      limit: Number(limit),
-      total,
-    },
+    meta: { page: Number(page), limit: Number(limit), total },
     data: memberships,
   };
 };
 
+// ২. মেম্বারশিপ আপডেট করা
 const updateMembership = async (
   userId: string,
   membershipId: string,
   payload: Partial<CreateMembershipInput>,
 ): Promise<IMembershipResponse> => {
-  // 1. Find the clinic associated with the logged-in user
   const existingClinic = await prisma.clinic.findFirst({
     where: { userId },
     select: { id: true },
   });
 
   if (!existingClinic) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'Clinic profile not found!');
+    throw new ApiError(httpStatus.FORBIDDEN, 'আপনার ক্লিনিক প্রোফাইলটি পাওয়া যায়নি');
   }
 
-  // 2. Ensure the membership exists and belongs to THIS clinic
   const membershipToUpdate = await prisma.membership.findUnique({
-    where: {
-      id: membershipId,
-      clinicId: existingClinic.id,
-    },
+    where: { id: membershipId, clinicId: existingClinic.id },
   });
 
   if (!membershipToUpdate) {
     throw new ApiError(
       httpStatus.NOT_FOUND,
-      'Membership not found or you do not have permission to edit it',
+      'সদস্যপদটি খুঁজে পাওয়া যায়নি অথবা আপনার এটি পরিবর্তন করার অনুমতি নেই',
     );
   }
 
-  // 3. Perform the update
-  const updatedMembership = await prisma.membership.update({
+  return await prisma.membership.update({
     where: { id: membershipId },
     data: payload,
-    include: {
-      doctor: {
-        include: {
-          user: true,
-        },
-      },
-    },
+    include: { doctor: { include: { user: true } } },
   });
-
-  return updatedMembership;
 };
 
-const deleteMembership = async (membershipId: string, id: string) => {
+// ৩. মেম্বারশিপ ডিলিট করা
+const deleteMembership = async (membershipId: string, userId: string) => {
+  // নিশ্চিত করা যে এই মেম্বারশিপটি এই ইউজারের ক্লিনিকেরই
   const user = await prisma.user.findUnique({
-    where: { id },
+    where: { id: userId },
     select: { clinic: { select: { id: true } } },
   });
 
-  if (!user) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
+  if (!user?.clinic) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'ক্লিনিক প্রোফাইল পাওয়া যায়নি');
   }
 
-  // Delete user
+  const membership = await prisma.membership.findUnique({
+    where: { id: membershipId, clinicId: user.clinic.id },
+  });
+
+  if (!membership) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'সদস্যপদটি পাওয়া যায়নি');
+  }
+
   await prisma.membership.delete({
     where: { id: membershipId },
   });
 
-  return { message: 'User deleted successfully' };
+  return { message: 'সফলভাবে সদস্যপদ থেকে অপসারিত করা হয়েছে' };
 };
 
 export const MembershipService = {
-  createMembership,
+  createMembership, // আপনার আগের করা ফাংশনটি এখানে থাকবে
   getClinicMemberships,
   updateMembership,
   deleteMembership,

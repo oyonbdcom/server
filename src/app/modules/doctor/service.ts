@@ -7,6 +7,7 @@ import { IGenericResponse } from '../../../interface/common';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
 
+import { createSlug } from '../../../utils/createSlug';
 import { DOCTOR_SELECT } from './constant';
 import { IDoctorResponse, IDoctorStats } from './interface';
 import { CreateDoctorInput, UpdateDoctorInput } from './zodValidation';
@@ -32,11 +33,11 @@ const createDoctor = async (doctorData: CreateDoctorInput): Promise<IDoctorRespo
       hospital: doctorData.hospital,
       position: doctorData.position,
       bio: doctorData.bio,
+      slug: createSlug(doctorData.user?.name),
       gender: doctorData.gender,
       district: doctorData.district,
       city: doctorData.city,
       country: doctorData.country ?? 'Bangladesh',
-      education: doctorData.education,
     },
     select: DOCTOR_SELECT,
   });
@@ -60,7 +61,7 @@ const getDoctors = async (
   options: IOptions,
 ): Promise<IGenericResponse<IDoctorResponse[]>> => {
   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
-  const { searchTerm, active, minRating, gender, ...filterData } = filter;
+  const { searchTerm, active, minRating, gender, department, ...filterData } = filter;
 
   const andConditions: Prisma.DoctorWhereInput[] = [];
 
@@ -70,11 +71,11 @@ const getDoctors = async (
       OR: [
         { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
         { department: { contains: searchTerm, mode: 'insensitive' } },
-        { specialization: { contains: searchTerm, mode: 'insensitive' } },
-        { district: { contains: searchTerm, mode: 'insensitive' } }, // Changed from equals to contains
-        { city: { contains: searchTerm, mode: 'insensitive' } },
       ],
     });
+  }
+  if (department) {
+    andConditions.push({ department: { contains: department, mode: 'insensitive' } });
   }
 
   // 2. 🟢 Active/Deactivate Status (Corrected Logic)
@@ -173,23 +174,25 @@ const getDoctorStats = async (): Promise<IDoctorStats> => {
   };
 };
 
-const getDoctorById = async (userId: string): Promise<IDoctorResponse> => {
-  if (!userId) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'userid is required');
+export const getDoctorById = async (identifier: string): Promise<IDoctorResponse> => {
+  if (!identifier) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'আইডি বা স্ল্যাগ প্রদান করা বাধ্যতামূলক');
   }
 
-  // Fetch doctor info
-  const doctor = await prisma.doctor.findUnique({
-    where: { userId },
+  // findUnique-এর পরিবর্তে findFirst ব্যবহার করা হয়েছে
+  const doctor = await prisma.doctor.findFirst({
+    where: {
+      OR: [{ userId: identifier }, { slug: identifier }],
+    },
     select: DOCTOR_SELECT,
   });
 
   if (!doctor) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Doctor not found');
+    throw new ApiError(httpStatus.NOT_FOUND, 'কাঙ্ক্ষিত ডাক্তারকে খুঁজে পাওয়া যায়নি');
   }
+
   return doctor as IDoctorResponse;
 };
-
 const updateDoctor = async (
   userId: string,
   doctorData: UpdateDoctorInput,

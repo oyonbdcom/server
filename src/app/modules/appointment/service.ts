@@ -9,6 +9,7 @@ import ApiError from '../../../utils/apiError';
 import bcrypt from 'bcrypt';
 import { JwtPayload } from 'jsonwebtoken';
 import { IOptions, paginationCalculator } from '../../../helper';
+import { createSlug } from '../../../utils/createSlug';
 import { sendPushNotification } from '../../../utils/notification.utils';
 import { appointmentPopulate, generateAppointmentCode, generateTokens } from './constant';
 import { IAppointmentCreateInput, IAppointmentResponse, IAppointmentStats } from './interface';
@@ -117,7 +118,12 @@ const createAppointmentForGuest = async (
         name: payload.guest.name,
         password: hashedPassword,
         role: 'PATIENT',
-        patient: { create: { phoneNumber: payload?.guest?.phoneNumber } },
+        patient: {
+          create: {
+            phoneNumber: payload?.guest?.phoneNumber,
+            slug: createSlug(payload?.guest?.name),
+          },
+        },
       },
     });
 
@@ -167,12 +173,28 @@ const createAppointmentForRegisteredUser = async (
   userId: string,
   payload: IAppointmentCreateInput,
 ): Promise<IAppointmentResponse> => {
-  const startOfDay = new Date();
+  // ১. ইউজার এবং তার রোল চেক (Patient কিনা নিশ্চিত করা)
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true }, // আপনার স্কিমা অনুযায়ী role ফিল্ডের নাম check করুন
+  });
+
+  if (!user || user.role !== 'PATIENT') {
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      'শুধুমাত্র রোগীরাই (Patient) অ্যাপয়েন্টমেন্ট বুক করতে পারবেন।',
+    );
+  }
+
+  // ২. তারিখ নির্ধারণ
+  const bookingDate = new Date();
+  const startOfDay = new Date(bookingDate);
   startOfDay.setHours(0, 0, 0, 0);
 
-  const endOfDay = new Date();
+  const endOfDay = new Date(bookingDate);
   endOfDay.setHours(23, 59, 59, 999);
 
+  // ৩. ডুপ্লিকেট বুকিং চেক
   const existingAppointment = await prisma.appointment.findFirst({
     where: {
       patientId: userId,
@@ -181,53 +203,39 @@ const createAppointmentForRegisteredUser = async (
         gte: startOfDay,
         lte: endOfDay,
       },
-      status: { not: 'CANCELLED' },
+      status: 'SCHEDULED',
     },
   });
 
   if (existingAppointment) {
     throw new ApiError(
       httpStatus.CONFLICT,
-      'You already have an appointment with this doctor today.',
+      'এই চিকিৎসকের সাথে আপনার আজকের অ্যাপয়েন্টমেন্ট ইতিমধ্যে বুক করা আছে।',
     );
   }
+
   const result = await prisma.$transaction(async (tx) => {
-    let userWithPatient = await tx.user.findUnique({
-      where: { id: userId },
-      include: { patient: true },
-    });
-
-    if (!userWithPatient) {
-      throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
-    }
-
-    if (!userWithPatient.patient) {
-      const newPatient = await tx.patient.create({
-        data: { userId: userId },
-      });
-      userWithPatient.patient = newPatient;
-    }
-
+    // ৪. অ্যাপয়েন্টমেন্ট তৈরি
     return await tx.appointment.create({
       data: {
-        appointmentDate: new Date(),
+        appointmentDate: bookingDate,
         status: 'SCHEDULED',
         code: generateAppointmentCode(6),
         doctor: { connect: { id: payload.doctorId } },
         clinic: { connect: { id: payload.clinicId } },
-        patient: { connect: { id: userWithPatient.id } },
+        patient: { connect: { id: userId } },
       },
       include: appointmentPopulate,
     });
   });
 
-  // Trigger Notification for Registered User
+  // ৫. নোটিফিকেশন (Non-blocking)
   if (result) {
     sendPushNotification(
       result.clinicId,
-      'New Booking! 🏥',
-      `New appointment from ${result.patient?.name || 'Registered User'}`,
-    );
+      'নতুন বুকিং! 🏥',
+      `${result.patient?.name || 'একজন পেশেন্ট'} একটি নতুন অ্যাপয়েন্টমেন্ট বুক করেছেন`,
+    ).catch((err) => console.error('Notification Error:', err));
   }
 
   return result as unknown as IAppointmentResponse;

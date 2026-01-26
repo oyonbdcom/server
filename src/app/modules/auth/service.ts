@@ -11,6 +11,7 @@ import { emailTemplates } from '../../../helper/email/templete';
 import { jwtTokenHelper } from '../../../helper/jwtHelper';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
+import { createSlug } from '../../../utils/createSlug';
 import { USER_SELECT } from '../user/constant';
 import { IUserResponse } from '../user/interface';
 import { CreateUserInput } from '../user/zodValidation';
@@ -34,20 +35,20 @@ const generateTokens = (user: IUserResponse) => {
 const register = async (data: CreateUserInput): Promise<IUserResponse> => {
   const { email, password, name, role } = data;
 
-  // 1. Check for existing user
+  // ১. ইউজার চেক
   const existingUser = await prisma.user.findUnique({
     where: { email },
     select: { id: true, emailVerified: true, name: true },
   });
 
   if (existingUser?.emailVerified) {
-    throw new ApiError(httpStatus.CONFLICT, 'Email already registered and verified.');
+    throw new ApiError(httpStatus.CONFLICT, 'এই ইমেইলটি ইতিমধ্যে নিবন্ধিত এবং ভেরিফাইড।');
   }
 
   const emailVerifiedToken = uuidv4();
   const emailVerifiedTokenExpires = new Date(Date.now() + 12 * 60 * 60 * 1000);
 
-  // 2. Scenario: Re-verifying an unverified user
+  // ২. আন-ভেরিফাইড ইউজার আপডেট
   if (existingUser && !existingUser.emailVerified) {
     const updatedUser = await prisma.user.update({
       where: { email },
@@ -58,19 +59,18 @@ const register = async (data: CreateUserInput): Promise<IUserResponse> => {
       },
       select: USER_SELECT,
     });
+    // await sendVerificationEmail(newUser.email, newUser.name, emailVerifiedToken);
 
-    // await sendVerificationEmail(updatedUser.email, updatedUser.name, emailVerifiedToken);
     return updatedUser;
   }
 
-  // 3. Scenario: New User Registration
+  // ৩. পাসওয়ার্ড ভ্যালিডেশন ও হ্যাশিং
   if (!PASSWORD_REGEX.test(password)) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid password format');
+    throw new ApiError(httpStatus.BAD_REQUEST, 'পাসওয়ার্ডের ফরম্যাট সঠিক নয়।');
   }
-
   const hashedPassword = await bcrypt.hash(password, 12);
 
-  // 4. Transaction: Atomic User + Profile Creation
+  // ৪. ট্রানজেকশন: ইউজার + প্রোফাইল (স্ল্যাগ সহ)
   const newUser = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
@@ -84,33 +84,41 @@ const register = async (data: CreateUserInput): Promise<IUserResponse> => {
       select: USER_SELECT,
     });
 
-    // Automatically create the specific profile based on role
+    // স্ল্যাগ জেনারেশন (নাম থেকে)
+    const slug = createSlug(user.name);
+
+    // রোল অনুযায়ী প্রোফাইল তৈরি
     switch (user.role) {
       case 'CLINIC':
-        await tx.clinic.create({ data: { userId: user.id } });
+        await tx.clinic.create({
+          data: {
+            userId: user.id,
+            slug: slug,
+          },
+        });
         break;
       case 'DOCTOR':
         await tx.doctor.create({
           data: {
             userId: user.id,
             department: 'General',
+            slug: slug,
           },
         });
         break;
       case 'PATIENT':
-        await tx.patient.create({ data: { userId: user.id } });
+        await tx.patient.create({ data: { userId: user.id, slug: slug } });
         break;
     }
 
     return user;
   });
 
-  // 5. Send Verification Email
+  // ৫. ভেরিফিকেশন ইমেইল পাঠানো
   await sendVerificationEmail(newUser.email, newUser.name, emailVerifiedToken);
 
   return newUser;
 };
-
 const verifyEmail = async (token: string) => {
   const user = await prisma.user.findFirst({
     where: {

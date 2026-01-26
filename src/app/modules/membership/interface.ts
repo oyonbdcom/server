@@ -1,4 +1,3 @@
-import { Decimal } from '@prisma/client/runtime/library';
 import z from 'zod';
 import { createClinicMembershipSchema, updateClinicMembershipSchema } from './zodValidation';
 
@@ -18,9 +17,9 @@ export interface IMemberDoctor {
 
 export interface IMembershipResponse {
   id: string;
-  fee: Decimal | number;
-  maxAppointments: number;
-  discount: number;
+  fee: string;
+  maxAppointments: string;
+  discount: string;
   createdAt: Date;
   updatedAt: Date;
   doctor?: IMemberDoctor | null;

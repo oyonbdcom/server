@@ -9,6 +9,7 @@ import { createClinicSchema, updateClinicSchema } from './zodValidation';
 export interface IClinicResponse {
   id: string;
   userId: string;
+  slug: string;
   phoneNumber: string | null;
   description: string | null;
   openingHour: string | null;
@@ -39,9 +40,9 @@ export interface IClinicResponse {
 
   memberships?: {
     id: string;
-    fee: number;
-    maxAppointments: number;
-    discount: number;
+    fee: string;
+    maxAppointments: string;
+    discount: string;
     createdAt: Date;
     updatedAt: Date;
     doctor?: any | null;

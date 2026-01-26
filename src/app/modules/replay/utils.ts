@@ -18,7 +18,7 @@ export const recallRating = async (
 
   if (targetType === ReviewTargetType.DOCTOR) {
     await tx.doctor.update({
-      where: { id: targetId },
+      where: { userId: targetId },
       data,
     });
     return;
@@ -26,7 +26,7 @@ export const recallRating = async (
 
   if (targetType === ReviewTargetType.CLINIC) {
     await tx.clinic.update({
-      where: { id: targetId },
+      where: { userId: targetId },
       data,
     });
     return;

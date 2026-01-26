@@ -51,42 +51,79 @@ enum AppointmentStatus {
 //   {model }
 //************************
 //*********************
-model User {
-  id                        String           @id @default(cuid())
-  name                      String
-  email                     String           @unique
-  emailVerifiedToken        String?
-  emailVerifiedTokenExpires DateTime?
-  emailVerified             Boolean          @default(false)
-  otp                       String?
-  otpExpires                DateTime?
-  image                     String?
-  password                  String
-  refreshToken              String?
-  role                      UserRole         @default(PATIENT)
-  lastLoginAt               DateTime?
-  deactivate                Boolean          @default(false)
-  createdAt                 DateTime         @default(now())
-  updatedAt                 DateTime         @updatedAt
-  doctor                    Doctor?
-  patient                   Patient?
-  clinic                    Clinic?
-  favoriteDoctors           FavoriteDoctor[]
-  reviewsWritten            Review[]         @relation("UserReviewsWritten")
-  reviewsReceived           Review[]         @relation("UserReviewsReceived")
-  reviewReplies             ReviewReply[]    @relation("UserRepliesMade")
-  appointmentsAsDoctor      Appointment[]    @relation("DoctorAppointments")
-  appointmentsAsPatient     Appointment[]    @relation("PatientAppointments")
-  appointmentsAsClinic      Appointment[]    @relation("ClinicAppointments")
-  deviceTokens              DeviceToken[]
+// model User {
+//   id                        String           @id @default(cuid())
+//   name                      String
+//   email                     String           @unique
+//   emailVerifiedToken        String?
+//   emailVerifiedTokenExpires DateTime?
+//   emailVerified             Boolean          @default(false)
+//   otp                       String?
+//   otpExpires                DateTime?
+//   image                     String?
+//   password                  String
+//   refreshToken              String?
+//   role                      UserRole         @default(PATIENT)
+//   lastLoginAt               DateTime?
+//   deactivate                Boolean          @default(false)
+//   createdAt                 DateTime         @default(now())
+//   updatedAt                 DateTime         @updatedAt
+//   doctor                    Doctor?
+//   patient                   Patient?
+//   clinic                    Clinic?
+//   favoriteDoctors           FavoriteDoctor[]
+//   reviewsWritten            Review[]         @relation("UserReviewsWritten")
+//   reviewsReceived           Review[]         @relation("UserReviewsReceived")
+//   reviewReplies             ReviewReply[]    @relation("UserRepliesMade")
+//   appointmentsAsDoctor      Appointment[]    @relation("DoctorAppointments")
+//   appointmentsAsPatient     Appointment[]    @relation("PatientAppointments")
+//   appointmentsAsClinic      Appointment[]    @relation("ClinicAppointments")
+//   deviceTokens              DeviceToken[]
 
-  @@index([email])
+//   @@index([email])
+// }
+model User {
+  id   String @id @default(cuid())
+  name String
+
+  // ফোন নম্বরই এখন একমাত্র ইউনিক আইডেন্টিফায়ার
+  phoneNumber String @unique
+
+  // OTP ভেরিফিকেশন ফিল্ডস
+  otp        String?
+  otpExpires DateTime?
+
+  image        String?
+  password     String
+  refreshToken String?
+  role         UserRole  @default(PATIENT)
+  lastLoginAt  DateTime?
+  deactivate   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // রিলেশনশিপসমূহ
+  doctor                Doctor?
+  patient               Patient?
+  clinic                Clinic?
+  favoriteDoctors       FavoriteDoctor[]
+  reviewsWritten        Review[]         @relation("UserReviewsWritten")
+  reviewsReceived       Review[]         @relation("UserReviewsReceived")
+  reviewReplies         ReviewReply[]    @relation("UserRepliesMade")
+  appointmentsAsDoctor  Appointment[]    @relation("DoctorAppointments")
+  appointmentsAsPatient Appointment[]    @relation("PatientAppointments")
+  appointmentsAsClinic  Appointment[]    @relation("ClinicAppointments")
+  deviceTokens          DeviceToken[]
+
+  // ইনডেক্সিং (সার্চিং ফাস্ট করার জন্য)
+  @@index([phoneNumber])
 }
 
 model Doctor {
   id             String       @id @default(cuid())
   userId         String       @unique
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug           String       @unique
   department     String
   specialization String?
   bio            String?      @db.Text
@@ -100,6 +137,7 @@ model Doctor {
   country        String       @default("Bangladesh")
   education      Json?
   hospital       String?      @db.Text
+  degree         String?      @db.Text
   averageRating  Float        @default(0.0)
   reviewsCount   Int          @default(0)
   memberships    Membership[]
@@ -109,6 +147,7 @@ model Doctor {
   updatedAt       DateTime                 @updatedAt
   searchVector    Unsupported("tsvector")? @map("search_vector")
 
+  @@index([slug])
   @@index([city])
   @@index([district])
   @@index([department])
@@ -121,6 +160,7 @@ model Patient {
   id          String   @id @default(cuid())
   userId      String   @unique
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug        String   @unique
   age         Int?
   gender      Gender   @default(MALE)
   bloodGroup  String?
@@ -141,6 +181,7 @@ model Clinic {
   id              String       @id @default(cuid())
   userId          String       @unique
   user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug            String       @unique
   phoneNumber     String?
   description     String?      @db.Text
   averageRating   Float        @default(0.0)
@@ -157,6 +198,7 @@ model Clinic {
   updatedAt       DateTime     @updatedAt
   memberships     Membership[]
 
+  @@index([slug])
   @@index([city])
   @@index([district])
   @@index([averageRating])
@@ -166,9 +208,10 @@ model Membership {
   id              String     @id @default(cuid())
   doctorId        String
   clinicId        String
-  fee             Int
-  maxAppointments Int        @default(20)
-  discount        Int        @default(0)
+  fee             String
+  active          Boolean    @default(true)
+  maxAppointments String
+  discount        String
   expiresAt       DateTime   @default(now())
   doctor          Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   clinic          Clinic     @relation(fields: [clinicId], references: [id], onDelete: Cascade)
@@ -186,19 +229,25 @@ model Schedule {
   membershipId String
   membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
   days         String[]
-  startTime    String
-  endTime      String
+  times        String
+  note         String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  @@unique([membershipId, days, startTime, endTime])
+  @@unique([membershipId, days])
   @@index([membershipId])
 }
 
 model Appointment {
   id              String            @id @default(cuid())
-  appointmentDate DateTime          @default(now())
-  serialNumber    Int               @default(0)
+  patientName     String
+  ptAge           String
+  phoneNumber     String
+  address         String?
+  note            String?
+  appointmentDate String
+  times           String?
+  serialNumber    String?
   code            String?
   status          AppointmentStatus @default(SCHEDULED)
   doctorId        String
