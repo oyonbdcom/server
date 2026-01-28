@@ -7,14 +7,16 @@ import { AppointmentZodValidation } from './zodValidation';
 const router = express.Router();
 
 // User routes
+router.post('/send-otp', AppointmentsController.sendBookingOtp);
+
 router.post(
   '/',
 
   zodValidate(AppointmentZodValidation.CreateAppointmentSchema),
-  AppointmentsController.createAppointmentForGuest,
+  AppointmentsController.createAppointmentGuest,
 );
 router.post(
-  '/logged-in',
+  '/logged',
   protect,
   zodValidate(AppointmentZodValidation.CreateAppointmentSchema),
   AppointmentsController.createAppointmentForRegisteredUser,

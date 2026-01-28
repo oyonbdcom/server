@@ -21,26 +21,14 @@ const register = catchAsync(async (req, res) => {
   });
 });
 
-const verifyEmail = catchAsync(async (req, res) => {
-  const { token } = req.body;
-  const result = await AuthService.verifyEmail(token);
+const verifyOtp = catchAsync(async (req, res) => {
+  const resetData = req.body;
+  const result = await AuthService.verifyOtp(resetData);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Email verified successfully',
-    data: result,
-  });
-});
-
-const resendVerification = catchAsync(async (req, res) => {
-  const { email } = req.body;
-  const result = await AuthService.resendVerification(email);
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Verification email sent successfully',
+    message: 'Password reset successful',
     data: result,
   });
 });
@@ -68,9 +56,10 @@ const login = catchAsync(async (req, res) => {
   });
 });
 
-const forgotPassword = catchAsync(async (req, res) => {
-  const { email } = req.body;
-  const result = await AuthService.forgotPassword(email);
+const sendOtp = catchAsync(async (req, res) => {
+  const { phoneNumber } = req.body;
+
+  const result = await AuthService.sendOtp(phoneNumber);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -80,9 +69,9 @@ const forgotPassword = catchAsync(async (req, res) => {
   });
 });
 
-const resetPassword = catchAsync(async (req, res) => {
+const forgetVerifyOtp = catchAsync(async (req, res) => {
   const resetData = req.body;
-  const result = await AuthService.resetPassword(resetData);
+  const result = await AuthService.forgetVerifyOtp(resetData);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -91,9 +80,10 @@ const resetPassword = catchAsync(async (req, res) => {
     data: result,
   });
 });
-const verifyOtp = catchAsync(async (req, res) => {
+
+const resetPassword = catchAsync(async (req, res) => {
   const resetData = req.body;
-  const result = await AuthService.verifyOtp(resetData);
+  const result = await AuthService.resetPassword(resetData);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -142,10 +132,10 @@ const logout = catchAsync(async (req, res) => {
 
 const changePassword = catchAsync(async (req, res) => {
   const userId = req.user?.id;
-  const { currentPassword, newPassword } = req.body;
+  const { oldPassword, newPassword } = req.body;
   if (!userId) throw new ApiError(httpStatus.UNAUTHORIZED, 'Not authenticated');
 
-  await AuthService.changePassword(userId, currentPassword, newPassword);
+  await AuthService.changePassword(userId, oldPassword, newPassword);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -160,12 +150,11 @@ const changePassword = catchAsync(async (req, res) => {
 export const AuthController = {
   register,
   login,
-  forgotPassword,
+  sendOtp,
   resetPassword,
   refreshToken,
   verifyOtp,
+  forgetVerifyOtp,
   logout,
   changePassword,
-  verifyEmail,
-  resendVerification,
 };

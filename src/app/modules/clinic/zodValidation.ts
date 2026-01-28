@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { userRoleEnum } from '../../../constants/constant';
+import { phoneRegex, userRoleEnum } from '../../../constants/constant';
 
 export const clinicSchema = z.object({
   id: z.string().cuid().optional(),
@@ -12,11 +12,14 @@ export const clinicSchema = z.object({
       .min(2, 'নাম অন্তত ২ অক্ষরের হতে হবে')
       .regex(/^[ঀ-৿\s]+$/, 'নাম অবশ্যই বাংলায় হতে হবে'), // শুধুমাত্র বাংলা
 
-    email: z.string().email('সঠিক ইমেইল দিন'),
+    phoneNumber: z
+      .string()
+      .min(1, 'মোবাইল নম্বর দেওয়া আবশ্যক')
+      .regex(phoneRegex, 'সঠিক মোবাইল নম্বর প্রদান করুন'),
     password: z.string().min(8, 'পাসওয়ার্ড অন্তত ৮ অক্ষরের হতে হবে'),
     deactivate: z.boolean().default(true),
     image: z.string().default('null'),
-    emailVerified: z.boolean().optional(),
+    isPhoneVerified: z.boolean().optional(),
     role: userRoleEnum, // আপনার UserRole এনাম
   }),
 

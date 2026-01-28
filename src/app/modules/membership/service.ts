@@ -95,7 +95,7 @@ export const getClinicMemberships = async (
           department: true,
           position: true,
           hospital: true,
-          user: { select: { name: true, email: true, image: true, id: true } },
+          user: { select: { name: true, phoneNumber: true, image: true, id: true, role: true } },
         },
       },
       schedules: true,

@@ -7,7 +7,7 @@ export const appointmentPopulate = {
       id: true,
       name: true,
       image: true,
-      email: true,
+      phoneNumber: true,
       doctor: { select: { department: true, specialization: true } },
     },
   },
@@ -16,7 +16,8 @@ export const appointmentPopulate = {
       id: true,
       name: true,
       image: true,
-      email: true,
+
+      phoneNumber: true,
       patient: { select: { phoneNumber: true, bloodGroup: true } }, // Profile info
     },
   },
@@ -37,7 +38,7 @@ export const generateAppointmentCode = (length: number = 8): string => {
     .toUpperCase();
 };
 export const generateTokens = (user: IUserResponse) => {
-  const payload = { userId: user.id, email: user.email, role: user.role };
+  const payload = { userId: user.id, email: user.phoneNumber, role: user.role };
   return {
     accessToken: jwtTokenHelper.accessToken(payload),
     refreshToken: jwtTokenHelper.refreshToken(payload),

@@ -1,4 +1,5 @@
-import { Gender, UserRole } from '@prisma/client';
+import { Gender } from '@prisma/client';
+import { IUserResponse } from '../user/interface';
 export interface IEducation {
   degree: string;
   institution: string;
@@ -24,16 +25,7 @@ export interface IDoctorResponse {
   education: IEducation | any;
   createdAt: Date;
   updatedAt: Date;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    emailVerified: boolean;
-    image: string | null;
-    role: UserRole;
-    deactivate: boolean;
-    lastLoginAt: Date | null;
-  };
+  user: IUserResponse;
   memberships?: IDoctorMembership[];
 }
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'BLOCKED' | 'PENDING_APPROVAL';

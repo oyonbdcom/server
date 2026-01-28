@@ -21,16 +21,17 @@ const createDoctor = async (doctorData: CreateDoctorInput): Promise<IDoctorRespo
       user: {
         create: {
           name: doctorData.user?.name,
-          email: doctorData.user?.email,
+          phoneNumber: doctorData.user?.phoneNumber,
           password: hashedPassword,
           role: UserRole.DOCTOR,
-          emailVerified: doctorData.user?.emailVerified ?? false,
           image: doctorData.user?.image,
         },
       },
       department: doctorData.department,
       specialization: doctorData.specialization,
       hospital: doctorData.hospital,
+      degree: doctorData.degree,
+      website: doctorData.website,
       position: doctorData.position,
       bio: doctorData.bio,
       slug: createSlug(doctorData.user?.name),
@@ -215,7 +216,7 @@ const updateDoctor = async (
   const userUpdateData = doctorData.user
     ? {
         name: doctorData.user.name,
-        email: doctorData.user.email,
+        phoneNumber: doctorData.user.phoneNumber,
         image: doctorData.user.image,
         password: doctorData.user.password
           ? await bcrypt.hash(doctorData.user.password, 12)

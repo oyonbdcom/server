@@ -44,21 +44,7 @@ const getClinicStats = catchAsync(async (req, res) => {
     data: result,
   });
 });
-const getClinicDashboardStats = catchAsync(async (req, res) => {
-  const userId = req.user?.id;
-  if (!userId) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, 'User are unauthorized');
-  }
 
-  const result = await ClinicService.getClinicDashboardStats(userId);
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Clinic dashboard statistics retrieved successfully',
-    data: result,
-  });
-});
 const getClinicById = catchAsync(async (req, res) => {
   const slug = req.params.slug as string;
   const result = await ClinicService.getClinicById(slug);
@@ -109,7 +95,6 @@ const deleteClinic = catchAsync(async (req, res) => {
 });
 
 export const ClinicController = {
-  getClinicDashboardStats,
   createClinic,
   getClinics,
   getClinicStats,

@@ -13,12 +13,7 @@ router.post(
   zodValidate(ClinicZodValidation.createClinicSchema),
   ClinicController.createClinic,
 );
-router.get(
-  '/dashboard-stats',
-  protect,
-  restrictTo('CLINIC'),
-  ClinicController.getClinicDashboardStats,
-);
+
 router.get('/', ClinicController.getClinics);
 router.get('/statistics', protect, restrictTo('ADMIN'), ClinicController.getClinicStats);
 

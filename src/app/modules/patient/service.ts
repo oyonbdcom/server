@@ -76,7 +76,7 @@ const getPatients = async (
           select: {
             id: true,
             name: true,
-            email: true,
+            phoneNumber: true,
             image: true,
             deactivate: true,
             _count: {
@@ -110,7 +110,7 @@ const getPatients = async (
       ...patientData,
       // User details merged into root
       name: user.name,
-      email: user.email,
+      phoneNumber: user.phoneNumber,
       image: user.image,
       deactivate: user.deactivate,
       userId: user.id,
@@ -196,7 +196,7 @@ const updatePatient = async (
       user: {
         select: {
           name: true,
-          email: true,
+          phoneNumber: true,
           image: true,
           deactivate: true,
           _count: {
@@ -216,9 +216,9 @@ const updatePatient = async (
     district: updatedData.district,
     city: updatedData.city,
     bloodGroup: updatedData.bloodGroup,
-    phoneNumber: updatedData.phoneNumber,
+
     name: updatedData.user.name,
-    email: updatedData.user.email,
+    phoneNumber: updatedData.user.phoneNumber,
     image: updatedData.user.image,
     deactivate: updatedData.user.deactivate,
     latestAppointment: null,
@@ -249,7 +249,7 @@ const getPatientById = async (id: string): Promise<IPatientResponse | null> => {
       user: {
         select: {
           name: true,
-          email: true,
+          phoneNumber: true,
           image: true,
           deactivate: true,
           _count: {
@@ -288,9 +288,9 @@ const getPatientById = async (id: string): Promise<IPatientResponse | null> => {
     district: patient.district,
     city: patient.city,
     bloodGroup: patient.bloodGroup,
-    phoneNumber: patient.phoneNumber,
+
     name: patient.user.name,
-    email: patient.user.email,
+    phoneNumber: patient.user.phoneNumber,
     image: patient.user.image,
     deactivate: patient.user.deactivate,
 
@@ -341,10 +341,10 @@ const deletePatient = async (userId: string): Promise<IPatientResponse> => {
     district: updatedData.district,
     city: updatedData.city,
     bloodGroup: updatedData.bloodGroup,
-    phoneNumber: updatedData.phoneNumber,
+
     // Flattened User fields
     name: updatedData.user.name,
-    email: updatedData.user.email,
+    phoneNumber: updatedData.user.phoneNumber,
     image: updatedData.user.image,
     deactivate: updatedData.user.deactivate,
     // Latest Appointment (usually null on update unless specifically fetched)

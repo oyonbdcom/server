@@ -25,8 +25,8 @@ export const DOCTOR_SELECT = {
     select: {
       id: true,
       name: true,
-      email: true,
-      emailVerified: true,
+      phoneNumber: true,
+      isPhoneVerified: true,
       image: true,
       role: true,
       deactivate: true,

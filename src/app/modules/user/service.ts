@@ -15,9 +15,10 @@ const getCurrentUser = async (userId: string): Promise<IUserResponse> => {
     select: {
       id: true,
       name: true,
-      email: true,
+      phoneNumber: true,
       image: true,
       role: true,
+      isDefaultPassword: true,
 
       lastLoginAt: true,
     },
@@ -43,7 +44,7 @@ const getUsers = async (
     andConditions.push({
       OR: [
         { name: { contains: searchTerm, mode: 'insensitive' } },
-        { email: { contains: searchTerm, mode: 'insensitive' } },
+        { phoneNumber: { contains: searchTerm, mode: 'insensitive' } },
       ],
     });
   }
@@ -78,7 +79,7 @@ const getUsers = async (
     select: {
       id: true,
       name: true,
-      email: true,
+      phoneNumber: true,
 
       image: true,
       role: true,
@@ -101,7 +102,7 @@ const getUserById = async (id: string): Promise<IUserResponse> => {
     select: {
       id: true,
       name: true,
-      email: true,
+      phoneNumber: true,
 
       image: true,
       role: true,
@@ -134,7 +135,7 @@ const updateUserRole = async (id: string, role: UserRole): Promise<IUserResponse
     select: {
       id: true,
       name: true,
-      email: true,
+      phoneNumber: true,
 
       image: true,
       role: true,

@@ -11,11 +11,27 @@ import { IAppointmentResponse, IAppointmentStats } from './interface';
 import { AppointmentService } from './service';
 
 // Create Appointment
-const createAppointmentForGuest = catchAsync(async (req, res) => {
+const sendBookingOtp = catchAsync(async (req, res) => {
+  const { phoneNumber } = req.body;
+
+  if (!phoneNumber) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'ফোন নম্বর প্রদান করা আবশ্যক');
+  }
+
+  const result = await AppointmentService.sendBookingOtp(phoneNumber);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: result.message,
+    data: null,
+  });
+});
+const createAppointmentGuest = catchAsync(async (req, res) => {
   const appointmentData = req.body;
 
   // 2. Call service with both payload and existing user ID
-  const result = await AppointmentService.createAppointmentForGuest(appointmentData);
+  const result = await AppointmentService.createAppointmentGuest(appointmentData);
 
   const { refreshToken, accessToken, appointment, user } = result;
 
@@ -98,6 +114,7 @@ const updateAppointment = catchAsync(async (req, res) => {
 export const AppointmentsController = {
   getMyAppointments,
   createAppointmentForRegisteredUser,
-  createAppointmentForGuest,
+  createAppointmentGuest,
   updateAppointment,
+  sendBookingOtp,
 };

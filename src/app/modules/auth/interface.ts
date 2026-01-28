@@ -6,7 +6,8 @@ export type ILoginResponse = {
   user: {
     id: string;
     name: string;
-    email: string;
+    phoneNumber: string;
+    image: string | null;
     role: UserRole;
   };
 };

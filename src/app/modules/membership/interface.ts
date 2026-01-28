@@ -1,4 +1,5 @@
 import z from 'zod';
+import { IUserResponse } from '../user/interface';
 import { createClinicMembershipSchema, updateClinicMembershipSchema } from './zodValidation';
 
 export interface IMemberDoctor {
@@ -7,12 +8,7 @@ export interface IMemberDoctor {
   specialization: string | null;
   position: string | null;
   hospital: string | null;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    image: string | null;
-  };
+  user: IUserResponse;
 }
 
 export interface IMembershipResponse {
@@ -22,7 +18,7 @@ export interface IMembershipResponse {
   discount: string;
   createdAt: Date;
   updatedAt: Date;
-  doctor?: IMemberDoctor | null;
+  doctor?: any | null;
   clinic?: any;
   schedules?: any[];
 }

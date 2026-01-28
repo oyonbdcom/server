@@ -1,9 +1,9 @@
-import { UserRole } from '@prisma/client';
 import z from 'zod';
 
 import { IAppointmentResponse } from '../appointment/interface';
+import { IMembershipResponse } from '../membership/interface';
 import { IReviewResponse } from '../review/interface';
-import { IScheduleResponse } from '../schedule/interface';
+import { IUserResponse } from '../user/interface';
 import { createClinicSchema, updateClinicSchema } from './zodValidation';
 
 export interface IClinicResponse {
@@ -25,30 +25,9 @@ export interface IClinicResponse {
   reviewsCount: number;
   createdAt: Date;
   updatedAt: Date;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    role: UserRole;
-    emailVerified: boolean;
-    deactivate: boolean;
-    image: string | null;
-    lastLoginAt: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-  };
+  user: IUserResponse;
 
-  memberships?: {
-    id: string;
-    fee: string;
-    maxAppointments: string;
-    discount: string;
-    createdAt: Date;
-    updatedAt: Date;
-    doctor?: any | null;
-    clinic?: any;
-    schedules?: IScheduleResponse[];
-  }[];
+  memberships?: IMembershipResponse[];
 }
 export type ICreateClinicRequest = z.infer<typeof createClinicSchema>['body'];
 

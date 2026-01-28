@@ -18,7 +18,7 @@ export const PATIENT_SELECT = {
     select: {
       id: true,
       name: true,
-      email: true,
+      phoneNumber: true,
       image: true,
       deactivate: true,
       _count: {

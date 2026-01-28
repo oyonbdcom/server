@@ -7,12 +7,11 @@ export interface IPatientResponse {
   id: string;
   userId: string;
   name: string;
-  email: string;
+  phoneNumber: string;
   image: string | null;
   deactivate: boolean;
   age: number | null;
   gender: Gender | null;
-  phoneNumber: string | null;
   bloodGroup: string | null;
   address: string | null;
   district: string | null;

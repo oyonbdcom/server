@@ -1,27 +1,24 @@
 import z from 'zod';
 
 export const CreateAppointmentSchema = z.object({
-  body: z
-    .object({
-      reason: z.string().min(5, 'Reason is too short').optional(),
-      doctorId: z.string().cuid(),
-      clinicId: z.string().cuid(),
+  body: z.object({
+    patientName: z.string().min(2, 'নাম আবশ্যক'),
+    ptAge: z.preprocess(
+      (val) => Number(val),
+      z.number().min(1, 'বয়স অন্তত ১ বছর হতে হবে').max(120, 'সঠিক বয়স দিন'),
+    ),
 
-      // Guest Information (Optional if logged in)
-      guest: z
-        .object({
-          email: z.string().email('Invalid email address'),
-          name: z.string().min(2, 'Name is required'),
-          phoneNumber: z.string().min(11, 'Phone number is required'),
-          password: z.string().min(6, 'Password must be at least 6 characters').optional(),
-        })
-        .optional(),
-    })
-    .refine((data) => {
-      // This logic ensures that if the user isn't logged in, they MUST provide guest info
-      // (Note: The controller will check if req.user exists)
-      return true;
-    }),
+    phoneNumber: z.string().length(14, 'মোবাইল নম্বর অবশ্যই ১১ ডিজিটের হতে হবে'),
+    address: z.string().optional().or(z.literal('')),
+
+    note: z.string().optional().or(z.literal('')),
+
+    appointmentDate: z.string().min(1, 'তারিখ সিলেক্ট করুন'),
+
+    // সার্ভার সাইডে এগুলো ডাটাবেজ রিলেশনের জন্য প্রয়োজন হয়
+    doctorId: z.string().min(1, "ডাক্তার আইডি প্রয়োজন'"),
+    clinicId: z.string().min(1, 'ক্লিনিক আইডি প্রয়োজন'),
+  }),
 });
 
 export const UpdateAppointmentSchema = z.object({

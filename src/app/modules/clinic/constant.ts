@@ -22,9 +22,9 @@ export const CLINIC_SELECT = {
     select: {
       id: true,
       name: true,
-      email: true,
+      phoneNumber: true,
       role: true,
-      emailVerified: true,
+      isPhoneVerified: true,
       deactivate: true,
       image: true,
       lastLoginAt: true,

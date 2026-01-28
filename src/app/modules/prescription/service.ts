@@ -14,8 +14,8 @@ const getCurrentUser = async (userId: string): Promise<IUserResponse> => {
     select: {
       id: true,
       name: true,
-      email: true,
-      emailVerified: true,
+      phoneNumber: true,
+      isPhoneVerified: true,
       image: true,
       role: true,
       deactivate: true,
@@ -43,7 +43,7 @@ const getUsers = async (
     andConditions.push({
       OR: [
         { name: { contains: searchTerm, mode: 'insensitive' } },
-        { email: { contains: searchTerm, mode: 'insensitive' } },
+        { phoneNumber: { contains: searchTerm, mode: 'insensitive' } },
       ],
     });
   }
@@ -55,7 +55,7 @@ const getUsers = async (
       const parsedBool = value === 'true';
 
       if (key === 'emailVerified') {
-        andConditions.push({ emailVerified: parsedBool });
+        andConditions.push({ isPhoneVerified: parsedBool });
         return;
       }
 
@@ -83,8 +83,8 @@ const getUsers = async (
     select: {
       id: true,
       name: true,
-      email: true,
-      emailVerified: true,
+      phoneNumber: true,
+      isPhoneVerified: true,
       image: true,
       role: true,
       deactivate: true,
@@ -106,8 +106,8 @@ const getUserById = async (id: string): Promise<IUserResponse> => {
     select: {
       id: true,
       name: true,
-      email: true,
-      emailVerified: true,
+      phoneNumber: true,
+      isPhoneVerified: true,
       image: true,
       role: true,
       deactivate: true,
@@ -139,8 +139,8 @@ const updateUserRole = async (id: string, role: UserRole): Promise<IUserResponse
     select: {
       id: true,
       name: true,
-      email: true,
-      emailVerified: true,
+      phoneNumber: true,
+      isPhoneVerified: true,
       image: true,
       role: true,
       deactivate: true,

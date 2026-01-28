@@ -33,7 +33,7 @@ const createClinic = async (clinicData: ICreateClinicRequest): Promise<IClinicRe
       user: {
         create: {
           name: clinicData.user.name,
-          email: clinicData.user.email,
+          phoneNumber: clinicData.user.phoneNumber,
           password: hashedPassword,
           role: UserRole.CLINIC,
           image: clinicData.user.image,
@@ -149,10 +149,7 @@ export const getClinicById = async (identifier: string): Promise<IClinicResponse
   // findFirst ব্যবহার করা হয়েছে যাতে OR কন্ডিশন কাজ করে
   const clinic = await prisma.clinic.findFirst({
     where: {
-      OR: [
-        { userId: identifier }, // চেক করবে এটা কি ইউজার আইডি?
-        { slug: identifier }, // নাকি এটা ক্লিনিক স্ল্যাগ?
-      ],
+      OR: [{ userId: identifier }, { slug: identifier }],
     },
     select: CLINIC_SELECT,
   });
@@ -192,10 +189,10 @@ const updateClinic = async (
     }
     if (clinicData.user.name) userData.name = clinicData.user.name;
     if (clinicData.user.deactivate !== undefined) userData.deactivate = clinicData.user.deactivate;
-    if (clinicData.user.email) userData.email = clinicData.user.email;
+    if (clinicData.user.phoneNumber) userData.phoneNumber = clinicData.user.phoneNumber;
     if (clinicData.user.image) userData.image = clinicData.user.image;
-    if (clinicData.user.emailVerified !== undefined)
-      userData.emailVerified = clinicData.user.emailVerified;
+    if (clinicData.user.isPhoneVerified !== undefined)
+      userData.isPhoneVerified = clinicData.user.isPhoneVerified;
   }
 
   // ৪. Upsert অপারেশন (Slug সহ)

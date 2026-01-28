@@ -1,3 +1,4 @@
+import bcrypt from 'bcrypt';
 import httpStatus from 'http-status';
 import { IGenericResponse } from './../../../interface/common';
 
@@ -6,10 +7,8 @@ import { AppointmentStatus, Prisma } from '@prisma/client';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
 
-import bcrypt from 'bcrypt';
 import { JwtPayload } from 'jsonwebtoken';
 import { IOptions, paginationCalculator } from '../../../helper';
-import { createSlug } from '../../../utils/createSlug';
 import { sendPushNotification } from '../../../utils/notification.utils';
 import { appointmentPopulate, generateAppointmentCode, generateTokens } from './constant';
 import { IAppointmentCreateInput, IAppointmentResponse, IAppointmentStats } from './interface';
@@ -90,81 +89,164 @@ interface BookingAuthResponse {
   user: {
     id: string;
     name: string;
-    email: string;
+    phoneNumber: string;
     role: string;
   };
   appointment: IAppointmentResponse;
 }
 
 // ... existing imports
+const sendBookingOtp = async (phoneNumber: string): Promise<any> => {
+  // ১. ইউজার চেক করা (শুধুমাত্র দেখার জন্য যে সে অলরেডি ফুললি রেজিস্টার্ড কি না)
+  const user = await prisma.user.findUnique({
+    where: { phoneNumber },
+    select: {
+      isDefaultPassword: true,
+      password: true,
+    },
+  });
 
-const createAppointmentForGuest = async (
-  payload: IAppointmentCreateInput & {
-    guest: { email: string; name: string; password?: string; phoneNumber?: string };
-  },
-): Promise<BookingAuthResponse> => {
-  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    // 1. Check if email already exists
-    let user = await tx.user.findUnique({ where: { email: payload.guest.email } });
-    if (user) {
-      throw new ApiError(httpStatus.CONFLICT, 'Email already registered. Please login to book.');
+  // ২. যদি ইউজার থাকে এবং সে ভেরিফাইড হয় (পাসওয়ার্ড সেট করা থাকে), তবেই লগইন করতে বলব
+  if (user && !user.isDefaultPassword && user.password) {
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      'আপনার মোবাইল নম্বরটি ইতিমধ্যে নিবন্ধিত। দয়া করে লগইন করুন।',
+    );
+  }
+
+  // ৩. ওটিপি জেনারেট করা
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // ৫ মিনিট মেয়াদ
+
+  // ৪. ওটিপি সেভ বা আপডেট করা (Upsert ব্যবহার করা হয়েছে যাতে ডুপ্লিকেট এরর না আসে)
+  await prisma.otp.upsert({
+    where: { phoneNumber },
+    update: {
+      otp,
+      otpExpires,
+    },
+    create: {
+      phoneNumber,
+      otp,
+      otpExpires,
+    },
+  });
+
+  // ৫. SMS পাঠানোর ফাংশন এখানে কল হবে
+  // await sendSmsApi(phoneNumber, `আপনার কোড: ${otp}`);
+
+  return {
+    success: true,
+    message: 'আপনার মোবাইল নম্বরে ৬ ডিজিটের ওটিপি পাঠানো হয়েছে।',
+  };
+};
+
+const createAppointmentGuest = async (
+  payload: IAppointmentCreateInput & { otp: string }, // otpCode সহ নিবে
+): Promise<any> => {
+  const result = await prisma.$transaction(async (tx) => {
+    // ১. ওটিপি ভেরিফিকেশন (সবচেয়ে গুরুত্বপূর্ণ)
+    const otpRecord = await tx.otp.findUnique({
+      where: { phoneNumber: payload.phoneNumber },
+    });
+
+    if (!otpRecord || otpRecord.otp !== payload.otp) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটি সঠিক নয়।');
     }
 
-    // 2. Create User & Patient Profile
-    const hashedPassword = await bcrypt.hash(payload.guest.password || 'Default123!', 10);
-    user = await tx.user.create({
-      data: {
-        email: payload.guest.email,
-        name: payload.guest.name,
-        password: hashedPassword,
-        role: 'PATIENT',
-        patient: {
-          create: {
-            phoneNumber: payload?.guest?.phoneNumber,
-            slug: createSlug(payload?.guest?.name),
-          },
+    if (new Date() > otpRecord.otpExpires) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটির মেয়াদ শেষ হয়ে গেছে।');
+    }
+
+    // ২. ইউজার হ্যান্ডেলিং (নতুন ইউজার হলে ডিফল্ট পাসওয়ার্ড সেট হবে)
+    const existingUser = await tx.user.findUnique({
+      where: { phoneNumber: payload.phoneNumber },
+    });
+
+    let targetUser;
+
+    if (!existingUser) {
+      // নতুন ইউজার তৈরি
+      const hashedPassword = await bcrypt.hash('Default3@#', 12); // ডিফল্ট পাসওয়ার্ড হ্যাশ
+      targetUser = await tx.user.create({
+        data: {
+          name: payload.patientName,
+          phoneNumber: payload.phoneNumber,
+          role: 'PATIENT',
+          password: hashedPassword,
+          isDefaultPassword: true, // এটি ফ্ল্যাগ হিসেবে থাকবে
         },
+      });
+    } else {
+      targetUser = existingUser;
+    }
+
+    // ৩. ডুপ্লিকেট বুকিং চেক
+    const appointmentDay = new Date(payload.appointmentDate);
+    const startDate = new Date(appointmentDay.setUTCHours(0, 0, 0, 0));
+    const endDate = new Date(appointmentDay.setUTCHours(23, 59, 59, 999));
+
+    const existingAppointment = await tx.appointment.findFirst({
+      where: {
+        patientId: targetUser.id,
+        doctorId: payload.doctorId,
+        appointmentDate: { gte: startDate, lte: endDate },
+        status: { notIn: ['CANCELLED'] },
       },
     });
 
-    // 3. Create Appointment (Added 'include' to access patient name for notification)
+    if (existingAppointment) {
+      throw new ApiError(httpStatus.CONFLICT, 'এই ডাক্তারের সাথে আপনার আজকের বুকিং ইতিমধ্যে আছে।');
+    }
+
+    // ৪. অ্যাপয়েন্টমেন্ট তৈরি
     const newAppointment = await tx.appointment.create({
       data: {
-        appointmentDate: new Date(),
-        status: 'SCHEDULED',
+        patientName: payload.patientName,
+        ptAge: String(payload.ptAge),
+        phoneNumber: payload.phoneNumber,
+        address: payload.address || null,
+        appointmentDate: startDate,
+        status: 'PENDING',
         code: generateAppointmentCode(6),
-        doctor: { connect: { id: payload.doctorId } },
-        patient: { connect: { id: user.id } },
-        clinic: { connect: { id: payload.clinicId } },
+        note: payload.note || null,
+        doctorId: payload.doctorId,
+        clinicId: payload.clinicId,
+        patientId: targetUser.id,
       },
       include: {
-        patient: { select: { name: true } },
+        doctor: { select: { name: true } },
+        clinic: { select: { name: true } },
       },
     });
 
-    // 4. Generate Tokens
-    const tokens = generateTokens(user);
+    // ৫. ওটিপি ব্যবহার হয়ে গেলে ডিলিট করে দেওয়া (Clean up)
+    await tx.otp.delete({ where: { phoneNumber: payload.phoneNumber } });
+
+    const tokens = generateTokens(targetUser);
+
+    // ৬. ডাটাবেজ আপডেট (রিফ্রেশ টোকেন এবং লগইন টাইম)
     await tx.user.update({
-      where: { id: user.id },
-      data: { refreshToken: tokens.refreshToken, lastLoginAt: new Date() },
+      where: { id: targetUser.id },
+      data: {
+        refreshToken: tokens.refreshToken,
+        lastLoginAt: new Date(),
+      },
     });
 
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
-      appointment: newAppointment as any,
+      user: {
+        id: targetUser.id,
+        name: targetUser.name,
+        phoneNumber: targetUser.phoneNumber,
+        role: targetUser.role,
+        image: targetUser.image,
+      },
+      appointment: newAppointment,
     };
   });
-
-  // 5. Send Notification (Call outside transaction for better performance)
-  if (result.appointment) {
-    sendPushNotification(
-      result.appointment.clinicId,
-      'New Booking! 🏥',
-      `New appointment from ${result.user.name}`,
-    );
-  }
 
   return result;
 };
@@ -173,10 +255,10 @@ const createAppointmentForRegisteredUser = async (
   userId: string,
   payload: IAppointmentCreateInput,
 ): Promise<IAppointmentResponse> => {
-  // ১. ইউজার এবং তার রোল চেক (Patient কিনা নিশ্চিত করা)
+  // ১. ইউজার এবং তার রোল চেক
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { role: true }, // আপনার স্কিমা অনুযায়ী role ফিল্ডের নাম check করুন
+    select: { id: true, role: true, name: true },
   });
 
   if (!user || user.role !== 'PATIENT') {
@@ -186,15 +268,15 @@ const createAppointmentForRegisteredUser = async (
     );
   }
 
-  // ২. তারিখ নির্ধারণ
-  const bookingDate = new Date();
-  const startOfDay = new Date(bookingDate);
-  startOfDay.setHours(0, 0, 0, 0);
+  // ২. তারিখ নির্ধারণ (পেলোড থেকে আসা তারিখ ব্যবহার করা উচিত, শুধু বর্তমান সময় নয়)
+  const appointmentDate = new Date(payload.appointmentDate);
+  const startOfDay = new Date(appointmentDate);
+  startOfDay.setUTCHours(0, 0, 0, 0);
 
-  const endOfDay = new Date(bookingDate);
-  endOfDay.setHours(23, 59, 59, 999);
+  const endOfDay = new Date(appointmentDate);
+  endOfDay.setUTCHours(23, 59, 59, 999);
 
-  // ৩. ডুপ্লিকেট বুকিং চেক
+  // ৩. ডুপ্লিকেট বুকিং চেক (একই দিন, একই ডাক্তার, একই পেশেন্ট)
   const existingAppointment = await prisma.appointment.findFirst({
     where: {
       patientId: userId,
@@ -203,38 +285,47 @@ const createAppointmentForRegisteredUser = async (
         gte: startOfDay,
         lte: endOfDay,
       },
-      status: 'SCHEDULED',
+      status: 'PENDING',
     },
   });
 
-  if (existingAppointment) {
+  if (existingAppointment?.patientName === payload.patientName) {
     throw new ApiError(
       httpStatus.CONFLICT,
-      'এই চিকিৎসকের সাথে আপনার আজকের অ্যাপয়েন্টমেন্ট ইতিমধ্যে বুক করা আছে।',
+      'এই চিকিৎসকের সাথে আপনার এই তারিখে ইতিমধ্যে একটি অ্যাপয়েন্টমেন্ট বুক করা আছে।',
     );
   }
 
+  // ৪. ট্রানজ্যাকশন ব্যবহার করে অ্যাপয়েন্টমেন্ট তৈরি
   const result = await prisma.$transaction(async (tx) => {
-    // ৪. অ্যাপয়েন্টমেন্ট তৈরি
     return await tx.appointment.create({
       data: {
-        appointmentDate: bookingDate,
-        status: 'SCHEDULED',
+        patientName: payload.patientName || user.name, // ইউজার নাম না দিলে প্রোফাইল নাম নিবে
+        ptAge: String(payload.ptAge),
+        phoneNumber: payload.phoneNumber,
+        address: payload.address || null,
+        appointmentDate: startOfDay,
+        status: 'PENDING',
         code: generateAppointmentCode(6),
+        note: payload.note || null,
         doctor: { connect: { id: payload.doctorId } },
         clinic: { connect: { id: payload.clinicId } },
         patient: { connect: { id: userId } },
       },
-      include: appointmentPopulate,
+      include: {
+        doctor: { select: { name: true } },
+        clinic: { select: { name: true } },
+        patient: { select: { name: true } },
+      },
     });
   });
 
-  // ৫. নোটিফিকেশন (Non-blocking)
+  // ৫. নোটিফিকেশন (সাইলেন্টলি রান করবে)
   if (result) {
     sendPushNotification(
       result.clinicId,
       'নতুন বুকিং! 🏥',
-      `${result.patient?.name || 'একজন পেশেন্ট'} একটি নতুন অ্যাপয়েন্টমেন্ট বুক করেছেন`,
+      `${result.patientName} একটি নতুন অ্যাপয়েন্টমেন্ট বুক করেছেন`,
     ).catch((err) => console.error('Notification Error:', err));
   }
 
@@ -271,7 +362,8 @@ const updateAppointment = async (
 
 export const AppointmentService = {
   getMyAppointments,
+  sendBookingOtp,
   createAppointmentForRegisteredUser,
-  createAppointmentForGuest,
+  createAppointmentGuest,
   updateAppointment,
 };
