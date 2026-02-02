@@ -156,8 +156,7 @@ const getDoctorStats = async (): Promise<IDoctorStats> => {
       _count: {
         id: true,
       },
-      // Since department is String (required) in schema,
-      // we just filter for non-empty strings if needed
+
       where: {
         department: { not: '' },
       },

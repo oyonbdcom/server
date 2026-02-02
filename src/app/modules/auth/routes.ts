@@ -7,16 +7,20 @@ import { AuthValidation } from './zodValidation';
 const routes = express.Router();
 
 routes.post('/register', zodValidate(AuthValidation.registerSchema), AuthController.register);
-routes.post('/verify-otp', zodValidate(AuthValidation.verifyOtpSchema), AuthController.verifyOtp);
+routes.post(
+  '/verify-otp',
+  zodValidate(AuthValidation.verifyOtpSchema),
+  AuthController.verifyOtpForExistingUser,
+);
 
 routes.post('/login', zodValidate(AuthValidation.loginSchema), AuthController.login);
 
 routes.post('/send-otp', zodValidate(AuthValidation.sendOtpSchema), AuthController.sendOtp);
-routes.post(
-  '/forgot-verify-otp',
-  zodValidate(AuthValidation.verifyOtpSchema),
-  AuthController.forgetVerifyOtp,
-);
+// routes.post(
+//   '/forgot-verify-otp',
+//   zodValidate(AuthValidation.verifyOtpSchema),
+//   AuthController.forgetVerifyOtp,
+// );
 routes.post(
   '/reset-password',
   zodValidate(AuthValidation.resetPasswordSchema),

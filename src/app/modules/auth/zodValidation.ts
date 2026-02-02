@@ -19,6 +19,7 @@ export const registerSchema = z.object({
       .min(2, 'নাম অন্তত ২ অক্ষরের হতে হবে')
       .max(100, 'নাম ১০০ অক্ষরের বেশি হওয়া সম্ভব নয়'),
     // ইমেইল সরিয়ে ফোন নম্বর যুক্ত করা হয়েছে
+    otp: z.string().length(6, '৬ ডিজিটের ওটিপি দিন').optional(),
     phoneNumber: z
       .string()
       .min(11, 'ফোন নম্বর অন্তত ১১ ডিজিটের হতে হবে')

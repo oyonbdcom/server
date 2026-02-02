@@ -9,6 +9,7 @@ import ApiError from '../../../utils/apiError';
 
 import { JwtPayload } from 'jsonwebtoken';
 import { IOptions, paginationCalculator } from '../../../helper';
+import { createSlug } from '../../../utils/createSlug';
 import { sendPushNotification } from '../../../utils/notification.utils';
 import { appointmentPopulate, generateAppointmentCode, generateTokens } from './constant';
 import { IAppointmentCreateInput, IAppointmentResponse, IAppointmentStats } from './interface';
@@ -50,19 +51,21 @@ const getMyAppointments = async (
   }
 
   // 3. Parallel Execution for Data, Total, and Specific Stats
-  const [result, total, scheduledCount, completedCount, cancelledCount] = await Promise.all([
-    prisma.appointment.findMany({
-      where: dataWhere,
-      skip,
-      take: limit,
-      orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { serialNumber: 'asc' },
-      include: appointmentPopulate,
-    }),
-    prisma.appointment.count({ where }),
-    prisma.appointment.count({ where: { ...where, status: 'SCHEDULED' } }),
-    prisma.appointment.count({ where: { ...where, status: 'COMPLETED' } }),
-    prisma.appointment.count({ where: { ...where, status: 'CANCELLED' } }),
-  ]);
+  const [result, total, pendingCount, scheduledCount, completedCount, cancelledCount] =
+    await Promise.all([
+      prisma.appointment.findMany({
+        where: dataWhere,
+        skip,
+        take: limit,
+        orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { serialNumber: 'asc' },
+        include: appointmentPopulate,
+      }),
+      prisma.appointment.count({ where }),
+      prisma.appointment.count({ where: { ...where, status: 'PENDING' } }),
+      prisma.appointment.count({ where: { ...where, status: 'SCHEDULED' } }),
+      prisma.appointment.count({ where: { ...where, status: 'COMPLETED' } }),
+      prisma.appointment.count({ where: { ...where, status: 'CANCELLED' } }),
+    ]);
 
   const totalPage = Math.ceil(total / limit);
 
@@ -79,21 +82,10 @@ const getMyAppointments = async (
       scheduled: scheduledCount,
       completed: completedCount,
       cancelled: cancelledCount,
+      pending: pendingCount,
     },
   };
 };
-// 1. Updated Interface for the unified response
-interface BookingAuthResponse {
-  accessToken: string;
-  refreshToken: string;
-  user: {
-    id: string;
-    name: string;
-    phoneNumber: string;
-    role: string;
-  };
-  appointment: IAppointmentResponse;
-}
 
 // ... existing imports
 const sendBookingOtp = async (phoneNumber: string): Promise<any> => {
@@ -132,8 +124,16 @@ const sendBookingOtp = async (phoneNumber: string): Promise<any> => {
     },
   });
 
-  // ৫. SMS পাঠানোর ফাংশন এখানে কল হবে
-  // await sendSmsApi(phoneNumber, `আপনার কোড: ${otp}`);
+  // const message = `আপনার ভেরিফিকেশন কোডটি হলো: ${otp}. এটি ৫ মিনিটের জন্য কার্যকর।`;
+  // const smsResponse = await sendSMS(phoneNumber, message);
+
+  // if (!smsResponse.success) {
+  //   // যদি SMS পাঠানো ব্যর্থ হয়
+  //   throw new ApiError(
+  //     httpStatus.INTERNAL_SERVER_ERROR,
+  //     'SMS পাঠাতে সমস্যা হয়েছে, আবার চেষ্টা করুন।',
+  //   );
+  // }
 
   return {
     success: true,
@@ -142,64 +142,60 @@ const sendBookingOtp = async (phoneNumber: string): Promise<any> => {
 };
 
 const createAppointmentGuest = async (
-  payload: IAppointmentCreateInput & { otp: string }, // otpCode সহ নিবে
+  payload: IAppointmentCreateInput & { otp: string },
 ): Promise<any> => {
   const result = await prisma.$transaction(async (tx) => {
-    // ১. ওটিপি ভেরিফিকেশন (সবচেয়ে গুরুত্বপূর্ণ)
+    // ১. ওটিপি ভেরিফিকেশন
     const otpRecord = await tx.otp.findUnique({
       where: { phoneNumber: payload.phoneNumber },
     });
 
     if (!otpRecord || otpRecord.otp !== payload.otp) {
-      throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটি সঠিক নয়।');
+      throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটি সঠিক নয়।');
     }
 
     if (new Date() > otpRecord.otpExpires) {
-      throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটির মেয়াদ শেষ হয়ে গেছে।');
+      throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটির মেয়াদ শেষ হয়ে গেছে।');
     }
 
-    // ২. ইউজার হ্যান্ডেলিং (নতুন ইউজার হলে ডিফল্ট পাসওয়ার্ড সেট হবে)
+    // ২. প্রি-চেক (Unique Constraint Error এড়াতে)
     const existingUser = await tx.user.findUnique({
       where: { phoneNumber: payload.phoneNumber },
     });
 
-    let targetUser;
-
-    if (!existingUser) {
-      // নতুন ইউজার তৈরি
-      const hashedPassword = await bcrypt.hash('Default3@#', 12); // ডিফল্ট পাসওয়ার্ড হ্যাশ
-      targetUser = await tx.user.create({
-        data: {
-          name: payload.patientName,
-          phoneNumber: payload.phoneNumber,
-          role: 'PATIENT',
-          password: hashedPassword,
-          isDefaultPassword: true, // এটি ফ্ল্যাগ হিসেবে থাকবে
-        },
-      });
-    } else {
-      targetUser = existingUser;
+    if (existingUser) {
+      throw new ApiError(
+        httpStatus.CONFLICT,
+        'এই নম্বরটি ইতিমধ্যে নিবন্ধিত। অনুগ্রহ করে লগইন করুন।',
+      );
     }
 
-    // ৩. ডুপ্লিকেট বুকিং চেক
-    const appointmentDay = new Date(payload.appointmentDate);
-    const startDate = new Date(appointmentDay.setUTCHours(0, 0, 0, 0));
-    const endDate = new Date(appointmentDay.setUTCHours(23, 59, 59, 999));
+    const slug = createSlug(payload.patientName);
+    const hashedPassword = await bcrypt.hash('Default3@#', 12);
 
-    const existingAppointment = await tx.appointment.findFirst({
-      where: {
-        patientId: targetUser.id,
-        doctorId: payload.doctorId,
-        appointmentDate: { gte: startDate, lte: endDate },
-        status: { notIn: ['CANCELLED'] },
+    // ৩. নতুন ইউজার ও পেশেন্ট প্রোফাইল তৈরি
+    const newUser = await tx.user.create({
+      data: {
+        name: payload.patientName,
+        phoneNumber: payload.phoneNumber,
+        role: 'PATIENT',
+        password: hashedPassword,
+        isDefaultPassword: true,
+        patient: {
+          create: {
+            address: payload.address || null,
+            slug,
+          },
+        },
       },
+      include: { patient: true },
     });
 
-    if (existingAppointment) {
-      throw new ApiError(httpStatus.CONFLICT, 'এই ডাক্তারের সাথে আপনার আজকের বুকিং ইতিমধ্যে আছে।');
-    }
+    // ৪. অ্যাপয়েন্টমেন্ট প্রসেসিং
+    const appointmentDay = new Date(payload.appointmentDate);
+    const startDate = new Date(appointmentDay.setUTCHours(0, 0, 0, 0));
 
-    // ৪. অ্যাপয়েন্টমেন্ট তৈরি
+    // ৫. অ্যাপয়েন্টমেন্ট তৈরি
     const newAppointment = await tx.appointment.create({
       data: {
         patientName: payload.patientName,
@@ -212,22 +208,17 @@ const createAppointmentGuest = async (
         note: payload.note || null,
         doctorId: payload.doctorId,
         clinicId: payload.clinicId,
-        patientId: targetUser.id,
-      },
-      include: {
-        doctor: { select: { name: true } },
-        clinic: { select: { name: true } },
+        patientId: newUser.id, // User ID হিসেবে ব্যবহার হচ্ছে
+        discount: payload.discount,
       },
     });
 
-    // ৫. ওটিপি ব্যবহার হয়ে গেলে ডিলিট করে দেওয়া (Clean up)
+    // ৬. ক্লিনআপ এবং টোকেন আপডেট
     await tx.otp.delete({ where: { phoneNumber: payload.phoneNumber } });
 
-    const tokens = generateTokens(targetUser);
-
-    // ৬. ডাটাবেজ আপডেট (রিফ্রেশ টোকেন এবং লগইন টাইম)
+    const tokens = generateTokens(newUser);
     await tx.user.update({
-      where: { id: targetUser.id },
+      where: { id: newUser.id },
       data: {
         refreshToken: tokens.refreshToken,
         lastLoginAt: new Date(),
@@ -238,11 +229,9 @@ const createAppointmentGuest = async (
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       user: {
-        id: targetUser.id,
-        name: targetUser.name,
-        phoneNumber: targetUser.phoneNumber,
-        role: targetUser.role,
-        image: targetUser.image,
+        id: newUser.id,
+        name: newUser.name,
+        role: newUser.role,
       },
       appointment: newAppointment,
     };
@@ -311,6 +300,7 @@ const createAppointmentForRegisteredUser = async (
         doctor: { connect: { id: payload.doctorId } },
         clinic: { connect: { id: payload.clinicId } },
         patient: { connect: { id: userId } },
+        discount: payload.discount,
       },
       include: {
         doctor: { select: { name: true } },

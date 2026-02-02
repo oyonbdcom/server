@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { jwtTokenHelper } from '../../../helper';
 import { IUserResponse } from '../user/interface';
 
@@ -7,7 +8,7 @@ export const appointmentPopulate = {
       id: true,
       name: true,
       image: true,
-      phoneNumber: true,
+
       doctor: { select: { department: true, specialization: true } },
     },
   },
@@ -18,7 +19,7 @@ export const appointmentPopulate = {
       image: true,
 
       phoneNumber: true,
-      patient: { select: { phoneNumber: true, bloodGroup: true } }, // Profile info
+      patient: { select: { phoneNumber: true, bloodGroup: true } },
     },
   },
   clinic: {
@@ -29,8 +30,9 @@ export const appointmentPopulate = {
       clinic: { select: { address: true, city: true, district: true } }, // Profile info
     },
   },
+
   medicalRecords: true,
-};
+} satisfies Prisma.AppointmentSelect;
 export const generateAppointmentCode = (length: number = 8): string => {
   return Math.random()
     .toString(36)

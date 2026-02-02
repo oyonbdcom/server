@@ -10,7 +10,7 @@ export const CreateAppointmentSchema = z.object({
 
     phoneNumber: z.string().length(14, 'মোবাইল নম্বর অবশ্যই ১১ ডিজিটের হতে হবে'),
     address: z.string().optional().or(z.literal('')),
-
+    discount: z.string().optional().or(z.literal('')),
     note: z.string().optional().or(z.literal('')),
 
     appointmentDate: z.string().min(1, 'তারিখ সিলেক্ট করুন'),
@@ -23,8 +23,8 @@ export const CreateAppointmentSchema = z.object({
 
 export const UpdateAppointmentSchema = z.object({
   body: z.object({
-    appointmentDate: z.coerce.date().optional(),
-    reason: z.string().min(5).optional(),
+    times: z.string(),
+    serialNumber: z.number(),
     status: z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED', 'PENDING', 'RESCHEDULED']).optional(),
   }),
 });

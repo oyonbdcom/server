@@ -158,7 +158,6 @@ const updatePatient = async (
     throw new ApiError(httpStatus.BAD_REQUEST, 'User ID is required');
   }
 
-  console.log(userId);
   // 1. Find the patient first to get their ACTUAL userId and id
   const existingPatient = await prisma.patient.findFirst({
     where: {
@@ -170,10 +169,11 @@ const updatePatient = async (
     throw new ApiError(httpStatus.NOT_FOUND, 'Patient profile not found!');
   }
 
-  const { name, email, image, deactivate, ...patientData } = payload;
+  const { name, email, phoneNumber, image, deactivate, ...patientData } = payload;
 
   const userUpdateData: any = {};
   if (name !== undefined) userUpdateData.name = name;
+  if (phoneNumber !== undefined) userUpdateData.phoneNumber = phoneNumber;
   if (email !== undefined) userUpdateData.email = email;
   if (image !== undefined) userUpdateData.image = image;
   if (deactivate !== undefined) userUpdateData.deactivate = deactivate;

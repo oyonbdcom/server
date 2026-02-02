@@ -42,6 +42,8 @@ export const DOCTOR_SELECT = {
       schedules: true,
       clinic: {
         select: {
+          id: true,
+          userId: true,
           address: true,
           district: true,
           city: true,
@@ -53,6 +55,8 @@ export const DOCTOR_SELECT = {
       },
       doctor: {
         select: {
+          id: true,
+          userId: true,
           specialization: true,
           user: { select: { id: true, name: true, image: true } },
         },

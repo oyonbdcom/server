@@ -53,15 +53,10 @@ enum AppointmentStatus {
 //*********************
 
 model User {
-  id   String @id @default(cuid())
-  name String
-
-  // ফোন নম্বরই এখন একমাত্র ইউনিক আইডেন্টিফায়ার
+  id                String    @id @default(cuid())
+  name              String
   phoneNumber       String    @unique
   isPhoneVerified   Boolean   @default(false)
-  // OTP ভেরিফিকেশন ফিল্ডস
-  otp               String?
-  otpExpires        DateTime?
   isDefaultPassword Boolean   @default(false)
   image             String?
   password          String
@@ -225,7 +220,8 @@ model Appointment {
   note            String?
   appointmentDate DateTime
   times           String?
-  serialNumber    String?
+  discount        String?
+  serialNumber    Int?
   code            String?
   status          AppointmentStatus @default(SCHEDULED)
   doctorId        String

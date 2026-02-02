@@ -28,139 +28,106 @@ const generateTokens = (user: IUserResponse) => {
 
 // ---------------------- AUTH SERVICES ----------------------
 // ............. register , verify email or resend verification email .................
-const register = async (data: RegisterRequest): Promise<IUserResponse> => {
-  const { phoneNumber, password, name, role } = data;
+const register = async (data: RegisterRequest & { otp: string }): Promise<IUserResponse> => {
+  const { phoneNumber, password, name, role, otp } = data;
 
-  // ১. ইউজার অস্তিত্ব চেক (Existing User Check)
-  const existingUser = await prisma.user.findUnique({
+  // ১. OTP ভেরিফিকেশন (সবকিছুর আগে)
+  const otpRecord = await prisma.otp.findUnique({
     where: { phoneNumber },
-    select: { id: true, isPhoneVerified: true, name: true },
   });
 
-  // যদি ইউজার ইতিমধ্যে থাকে এবং ভেরিফাইড হয়, তবে এরর দিন
-  if (existingUser?.isPhoneVerified) {
-    throw new ApiError(httpStatus.CONFLICT, 'এই ফোন নম্বরটি দিয়ে ইতিমধ্যে অ্যাকাউন্ট খোলা হয়েছে।');
+  if (!otpRecord || otpRecord.otp !== otp) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'ভুল ওটিপি কোড।');
   }
 
-  // ২. ওটিপি ও পাসওয়ার্ড প্রসেসিং
-  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-  const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // ১০ মিনিট মেয়াদ
+  if (new Date() > otpRecord.otpExpires) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটির মেয়াদ শেষ হয়ে গেছে।');
+  }
 
+  // ২. পাসওয়ার্ড চেক ও হ্যাশিং
   if (!PASSWORD_REGEX.test(password)) {
-    throw new ApiError(
-      httpStatus.BAD_REQUEST,
-      'পাসওয়ার্ড অন্তত ৮ অক্ষরের হতে হবে এবং বড় হাতের অক্ষর, ছোট হাতের অক্ষর, সংখ্যা ও বিশেষ চিহ্ন থাকতে হবে।',
-    );
+    throw new ApiError(httpStatus.BAD_REQUEST, 'পাসওয়ার্ড পলিসি মানা হয়নি।');
   }
   const hashedPassword = await bcrypt.hash(password, 12);
 
-  // ৩. ট্রানজেকশন শুরু (Atomic Operation)
-  const user = await prisma.$transaction(async (tx) => {
-    let targetUser;
+  // ৩. ট্রানজেকশন (ইউজার + প্রোফাইল + ওটিপি ডিলিট)
+  const result = await prisma.$transaction(async (tx) => {
+    // ইউজার তৈরি
+    const newUser = await tx.user.create({
+      data: {
+        phoneNumber,
+        password: hashedPassword,
+        name: name ?? '',
+        role: (role as UserRole) || 'PATIENT',
+        isPhoneVerified: true, // যেহেতু ওটিপি মিলেছে
+      },
+      select: USER_SELECT,
+    });
 
-    if (existingUser) {
-      // ডুপ্লিকেট রিমুভ: ইউজার যদি আন-ভেরিফাইড থাকে, তবে তাকেই আপডেট করা হচ্ছে
-      targetUser = await tx.user.update({
-        where: { phoneNumber },
-        data: {
-          password: hashedPassword,
-          name: name || existingUser.name,
-          otp: otpCode,
-          otpExpires: otpExpires,
-          role: (role as UserRole) || 'PATIENT',
-        },
-        select: USER_SELECT,
-      });
-    } else {
-      // একদম নতুন ইউজার তৈরি
-      targetUser = await tx.user.create({
-        data: {
-          phoneNumber,
-          password: hashedPassword,
-          name: name ?? '',
-          otp: otpCode,
-          otpExpires: otpExpires,
-          role: (role as UserRole) || 'PATIENT',
-        },
-        select: USER_SELECT,
-      });
+    const slug = createSlug(newUser.name || 'user');
+    const profileData = { userId: newUser.id, slug };
 
-      // প্রোফাইল জেনারেশন (শুধুমাত্র নতুন ইউজারের জন্য স্ল্যাগ তৈরি)
-      const slug = createSlug(targetUser.name || 'user');
+    // রোল অনুযায়ী প্রোফাইল তৈরি
+    if (newUser.role === 'CLINIC') await tx.clinic.create({ data: profileData });
+    else if (newUser.role === 'DOCTOR')
+      await tx.doctor.create({ data: { ...profileData, department: 'General' } });
+    else await tx.patient.create({ data: profileData });
 
-      // রোল অনুযায়ী প্রোফাইল ডিস্ট্রিবিউশন
-      const profileData = { userId: targetUser.id, slug };
+    // ওটিপি ব্যবহার হয়ে গেছে, তাই ডিলিট
+    await tx.otp.delete({ where: { phoneNumber } });
 
-      switch (targetUser.role) {
-        case 'CLINIC':
-          await tx.clinic.create({ data: profileData });
-          break;
-        case 'DOCTOR':
-          await tx.doctor.create({
-            data: { ...profileData, department: 'General' },
-          });
-          break;
-        case 'PATIENT':
-          await tx.patient.create({ data: profileData });
-          break;
-      }
-    }
-
-    return targetUser;
+    return newUser;
   });
 
-  // ৪. ওটিপি পাঠানো (ব্যাকগ্রাউন্ড প্রসেস হতে পারে)
-  // await sendSMS(user.phoneNumber, `আপনার ভেরিফিকেশন কোড: ${otpCode}`);
-
-  return user;
+  return result;
 };
-
 // otp verify
-const verifyOtp = async (payload: { phoneNumber: string; otp: string }): Promise<any> => {
+const verifyOtpForExistingUser = async (payload: {
+  phoneNumber: string;
+  otp: string;
+}): Promise<any> => {
   const { phoneNumber, otp } = payload;
 
-  // ১. ইউজার খুঁজে বের করা
+  // ১. ইউজার ডাটাবেজে আছে কিনা নিশ্চিত করুন (যেহেতু বুকিং বা পাসওয়ার্ড রিসেট হচ্ছে)
   const user = await prisma.user.findUnique({
     where: { phoneNumber },
-    select: {
-      id: true,
-      otp: true,
-      otpExpires: true,
-      isPhoneVerified: true,
-    },
+    select: { id: true, isPhoneVerified: true },
   });
 
-  // ২. ইউজার অস্তিত্ব চেক
   if (!user) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'এই ফোন নম্বরে কোনো ইউজার খুঁজে পাওয়া যায়নি।');
+    throw new ApiError(httpStatus.NOT_FOUND, 'এই ফোন নম্বরে কোনো অ্যাকাউন্ট খুঁজে পাওয়া যায়নি।');
   }
 
-  // ৪. ওটিপি ম্যাচিং এবং এক্সপায়ারি চেক
-  if (!user.otp || user.otp !== otp) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'আপনার দেওয়া ওটিপি (OTP) কোডটি সঠিক নয়।');
+  // ২. Otp টেবিল থেকে রেকর্ডটি খুঁজে বের করা
+  const otpRecord = await prisma.otp.findUnique({
+    where: { phoneNumber },
+  });
+
+  // ৩. ওটিপি ম্যাচিং এবং এক্সপায়ারি চেক
+  if (!otpRecord || otpRecord.otp !== otp) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'আপনার দেওয়া ওটিপি (OTP) কোডটি সঠিক নয়।');
   }
 
-  const isExpired = user.otpExpires ? new Date() > user.otpExpires : true;
-  if (isExpired) {
-    throw new ApiError(
-      httpStatus.BAD_REQUEST,
-      'ওটিপি-র মেয়াদ শেষ হয়ে গেছে। দয়া করে আবার চেষ্টা করুন।',
-    );
+  if (new Date() > otpRecord.otpExpires) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি-র মেয়াদ শেষ হয়ে গেছে।');
   }
 
-  // ৫. ডাটাবেজ আপডেট (ওটিপি মুছে ফেলা এবং ভেরিফিকেশন কনফার্ম করা)
+  // ৪. সাকসেস হলে বুকিং বা পাসওয়ার্ড রিসেটের অনুমতি দেওয়া
+  // আপনি চাইলে এখানেই ইউজারের ফোন ভেরিফাইড হিসেবে আপডেট করতে পারেন
   await prisma.user.update({
     where: { phoneNumber },
-    data: {
-      isPhoneVerified: true,
-      otp: null, // সিকিউরিটির জন্য ওটিপি মুছে ফেলা
-      otpExpires: null, // এক্সপায়ারি রিসেট করা
-    },
+    data: { isPhoneVerified: true },
+  });
+
+  // ৫. কাজ শেষ হলে ওটিপি মুছে ফেলা (যাতে একই ওটিপি ২বার ব্যবহার না হয়)
+  await prisma.otp.delete({
+    where: { phoneNumber },
   });
 
   return {
     success: true,
-    message: 'ফোন নম্বর সফলভাবে ভেরিফাই করা হয়েছে।',
+    message: 'ওটিপি সফলভাবে যাচাই করা হয়েছে।',
+    userId: user.id, // বুকিং বা পরবর্তী ধাপের জন্য আইডি রিটার্ন করা ভালো
   };
 };
 
@@ -200,17 +167,17 @@ const login = async (payload: {
   }
 
   // ৪. ফোন ভেরিফিকেশন চেক (যদি ভেরিফাইড না থাকে তবে লগইন করতে দিবে না)
-  if (!user.isPhoneVerified) {
-    // এখানে আপনি চাইলে নতুন একটি ওটিপি জেনারেট করে SMS পাঠিয়ে দিতে পারেন
-    // throw new ApiError(httpStatus.FORBIDDEN, 'আপনার মোবাইল নম্বরটি এখনো ভেরিফাই করা হয়নি। অনুগ্রহ করে ওটিপি দিয়ে ভেরিফাই করুন।');
+  // if (!user.isPhoneVerified) {
+  //   // এখানে আপনি চাইলে নতুন একটি ওটিপি জেনারেট করে SMS পাঠিয়ে দিতে পারেন
+  //   // throw new ApiError(httpStatus.FORBIDDEN, 'আপনার মোবাইল নম্বরটি এখনো ভেরিফাই করা হয়নি। অনুগ্রহ করে ওটিপি দিয়ে ভেরিফাই করুন।');
 
-    // নোট: ফ্রন্টএন্ড এই এরর দেখে ইউজারকে ওটিপি পেজে পাঠিয়ে দিবে
-    throw new ApiError(httpStatus.UNAUTHORIZED, 'ভেরিফাই করা হয়নি');
-  }
+  //   // নোট: ফ্রন্টএন্ড এই এরর দেখে ইউজারকে ওটিপি পেজে পাঠিয়ে দিবে
+  //   throw new ApiError(httpStatus.UNAUTHORIZED, 'ভেরিফাই করা হয়নি');
+  // }
 
   // ৫. টোকেন জেনারেশন
   const tokens = generateTokens(user);
-  console.log(tokens);
+
   // ৬. ডাটাবেজ আপডেট (রিফ্রেশ টোকেন এবং লগইন টাইম)
   await prisma.user.update({
     where: { id: user.id },
@@ -235,47 +202,39 @@ const login = async (payload: {
 
 // send otp
 const sendOtp = async (phoneNumber: string): Promise<any> => {
-  // ১. ইউজার খুঁজে বের করা
-  const user = await prisma.user.findUnique({
-    where: { phoneNumber },
-    select: {
-      id: true,
-      phoneNumber: true,
-      name: true,
-      deactivate: true,
-    },
-  });
-
-  // ২. ইউজার অস্তিত্ব চেক
-  if (!user) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'এই মোবাইল নম্বরটি নিবন্ধিত নয়।');
-  }
-
-  // ৩. ডি-অ্যাক্টিভেশন চেক
-  if (user.deactivate) {
-    throw new ApiError(
-      httpStatus.FORBIDDEN,
-      'আপনার অ্যাকাউন্টটি বর্তমানে বন্ধ আছে। সাপোর্টে যোগাযোগ করুন।',
-    );
-  }
-
-  // ৪. ওটিপি এবং এক্সপায়ারি জেনারেশন
+  // ১. ৬ ডিজিটের ওটিপি জেনারেশন
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // ফোনের জন্য ৫ মিনিট যথেষ্ট
+  const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // ৫ মিনিট মেয়াদ
 
-  // ৫. ডাটাবেজ আপডেট
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
+  // ২. Otp টেবিলে ডাটা সেভ বা আপডেট (Upsert ব্যবহার করা হয়েছে)
+  // এটি একই নম্বরে বারবার ওটিপি পাঠালে আগেরটি আপডেট করে দিবে
+  await prisma.otp.upsert({
+    where: { phoneNumber },
+    update: {
       otp: otp,
       otpExpires: otpExpires,
     },
+    create: {
+      phoneNumber,
+      otp,
+      otpExpires,
+    },
   });
 
-  // ৬. SMS পাঠানো (সবচেয়ে গুরুত্বপূর্ণ অংশ)
-  // এখানে আপনার SMS Service কল করতে হবে
-  // await SMSService.sendOTP(user.phoneNumber, `আপনার ভেরিফিকেশন কোড: ${otp}`);
-  console.log(`OTP for ${phoneNumber}: ${otp}`); // ডেভেলপমেন্টের জন্য
+  // ৩. SMS সার্ভিস কল করা
+  // const message = `আপনার ভেরিফিকেশন কোডটি হলো: ${otp}. এটি ৫ মিনিটের জন্য কার্যকর।`;
+  // const smsResponse = await sendSMS(phoneNumber, message);
+
+  // if (!smsResponse.success) {
+  //   // যদি SMS পাঠানো ব্যর্থ হয়
+  //   throw new ApiError(
+  //     httpStatus.INTERNAL_SERVER_ERROR,
+  //     'SMS পাঠাতে সমস্যা হয়েছে, আবার চেষ্টা করুন।',
+  //   );
+  // }
+
+  // ডেভেলপমেন্টের জন্য কনসোলে দেখা (প্রোডাকশনে ডিলিট করে দিবেন)
+  console.log(`OTP for ${phoneNumber}: ${otp}`);
 
   return {
     success: true,
@@ -283,86 +242,35 @@ const sendOtp = async (phoneNumber: string): Promise<any> => {
   };
 };
 
-const forgetVerifyOtp = async (payload: { phoneNumber: string; otp: string }): Promise<any> => {
-  const { phoneNumber, otp } = payload;
-
-  // ১. ইউজার খুঁজে বের করা
-  const user = await prisma.user.findUnique({
-    where: { phoneNumber },
-    select: {
-      id: true,
-      otp: true,
-      otpExpires: true,
-      isPhoneVerified: true,
-    },
-  });
-
-  // ২. ইউজার অস্তিত্ব চেক
-  if (!user) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'এই ফোন নম্বরে কোনো ইউজার খুঁজে পাওয়া যায়নি।');
-  }
-
-  // ৪. ওটিপি ম্যাচিং এবং এক্সপায়ারি চেক
-  if (!user.otp || user.otp !== otp) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'আপনার দেওয়া ওটিপি (OTP) কোডটি সঠিক নয়।');
-  }
-
-  const isExpired = user.otpExpires ? new Date() > user.otpExpires : true;
-  if (isExpired) {
-    throw new ApiError(
-      httpStatus.BAD_REQUEST,
-      'ওটিপি-র মেয়াদ শেষ হয়ে গেছে। দয়া করে আবার চেষ্টা করুন।',
-    );
-  }
-
-  // ৫. ডাটাবেজ আপডেট (ওটিপি মুছে ফেলা এবং ভেরিফিকেশন কনফার্ম করা)
-  await prisma.user.update({
-    where: { phoneNumber },
-    data: {
-      isPhoneVerified: true,
-    },
-  });
-
-  return {
-    success: true,
-    message: 'ফোন নম্বর সফলভাবে ভেরিফাই করা হয়েছে।',
-  };
-};
-
 const resetPassword = async (payload: ResetPasswordRequest): Promise<any> => {
   const { phoneNumber, otp, newPassword } = payload;
 
-  // ১. ইউজার খুঁজে বের করা
+  // ১. ইউজার খুঁজে বের করা (পাসওয়ার্ড রিসেট করতে হলে ইউজার থাকতে হবে)
   const user = await prisma.user.findUnique({
     where: { phoneNumber },
   });
-  console.log(user, otp);
-  // ২. ইউজার অস্তিত্ব এবং ওটিপি চেক
-  if (!user || !user.otp || user.otp !== otp) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'ভুল ওটিপি কোড, আবার চেষ্টা করুন।');
+
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'এই ফোন নম্বরে কোনো অ্যাকাউন্ট পাওয়া যায়নি।');
   }
 
-  // ৩. ওটিপি মেয়াদ শেষ হয়েছে কিনা চেক (Expiry Check)
-  if (user.otpExpires && new Date() > new Date(user.otpExpires)) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটির মেয়াদ শেষ হয়ে গেছে।');
-  }
+  // ৩. নতুন পাসওয়ার্ড হ্যাশ করা
+  const hashedPassword = await bcrypt.hash(newPassword, 12);
 
-  // ৪. নতুন পাসওয়ার্ড হ্যাশ করা
-  const hashedPassword = await bcrypt.hash(newPassword, 12); // ১০ এর বদলে ১২ রাউন্ড সিকিউরিটির জন্য ভালো
-
-  // ৫. ডাটাবেজ আপডেট এবং ওটিপি ক্লিনআপ
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      password: hashedPassword,
-      otp: null,
-      otpExpires: null,
-    },
+  // ৪. ট্রানজেকশন (ইউজার পাসওয়ার্ড আপডেট এবং ওটিপি টেবিল থেকে ডাটা ডিলিট)
+  await prisma.$transaction(async (tx) => {
+    // পাসওয়ার্ড আপডেট
+    await tx.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+      },
+    });
   });
 
   return {
     success: true,
-    message: 'পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে।',
+    message: 'পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে। এখন লগইন করুন।',
   };
 };
 //
@@ -446,8 +354,7 @@ export const AuthService = {
   sendOtp,
   resetPassword,
   refreshToken,
-  verifyOtp,
-  forgetVerifyOtp,
   logout,
+  verifyOtpForExistingUser,
   changePassword,
 };

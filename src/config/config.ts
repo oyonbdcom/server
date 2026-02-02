@@ -7,6 +7,9 @@ dotenv.config({ path: path.join(process.cwd(), '.env') });
 export default {
   env: process.env.NODE_ENV || 'development',
   origin: process.env.ORIGIN || 'http://localhost:3000',
+  site: {
+    siteName: process.env.SITE_NAME,
+  },
   port: Number(process.env.PORT) || 4000,
   database_url: process.env.DATABASE_URL as string,
   jwt: {
@@ -27,5 +30,9 @@ export default {
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
     privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+  },
+  sms: {
+    sms_api_key: process.env.SMS_API_KEY,
+    sender_id: '8809648906025',
   },
 };

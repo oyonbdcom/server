@@ -21,9 +21,9 @@ const register = catchAsync(async (req, res) => {
   });
 });
 
-const verifyOtp = catchAsync(async (req, res) => {
-  const resetData = req.body;
-  const result = await AuthService.verifyOtp(resetData);
+const verifyOtpForExistingUser = catchAsync(async (req, res) => {
+  const payload = req.body;
+  const result = await AuthService.verifyOtpForExistingUser(payload);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -69,17 +69,17 @@ const sendOtp = catchAsync(async (req, res) => {
   });
 });
 
-const forgetVerifyOtp = catchAsync(async (req, res) => {
-  const resetData = req.body;
-  const result = await AuthService.forgetVerifyOtp(resetData);
+// const forgetVerifyOtp = catchAsync(async (req, res) => {
+//   const resetData = req.body;
+//   const result = await AuthService.forgetVerifyOtp(resetData);
 
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Password reset successful',
-    data: result,
-  });
-});
+//   sendResponse(res, {
+//     statusCode: httpStatus.OK,
+//     success: true,
+//     message: 'Password reset successful',
+//     data: result,
+//   });
+// });
 
 const resetPassword = catchAsync(async (req, res) => {
   const resetData = req.body;
@@ -133,18 +133,28 @@ const logout = catchAsync(async (req, res) => {
 const changePassword = catchAsync(async (req, res) => {
   const userId = req.user?.id;
   const { oldPassword, newPassword } = req.body;
+
   if (!userId) throw new ApiError(httpStatus.UNAUTHORIZED, 'Not authenticated');
 
+  // ১. পাসওয়ার্ড পরিবর্তন (AuthService এ refreshToken: null করা নিশ্চিত করুন)
   await AuthService.changePassword(userId, oldPassword, newPassword);
 
+  // ২. কুকি ক্লিয়ার করা (যাতে আগের সেশনটি ব্রাউজার থেকে মুছে যায়)
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: config.env === 'production',
+    sameSite: config.env === 'production' ? 'none' : 'lax',
+    path: '/',
+  });
+
+  // ৩. রেসপন্স পাঠানো
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Password changed successfully',
+    message: 'পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে। নিরাপত্তা নিশ্চিত করতে পুনরায় লগইন করুন।',
     data: null,
   });
 });
-
 // ==================== EXPORT ====================
 
 export const AuthController = {
@@ -153,8 +163,7 @@ export const AuthController = {
   sendOtp,
   resetPassword,
   refreshToken,
-  verifyOtp,
-  forgetVerifyOtp,
+  verifyOtpForExistingUser,
   logout,
   changePassword,
 };

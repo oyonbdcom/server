@@ -33,9 +33,12 @@ const getPatientStats = catchAsync(async (req, res) => {
   });
 });
 const getPatientById = catchAsync(async (req, res) => {
-  const { id } = req.params as { id: string };
+  const userId = req?.user?.id;
+  if (!userId) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
+  }
 
-  const result = await PatientService.getPatientById(id);
+  const result = await PatientService.getPatientById(userId);
 
   sendResponse<IPatientResponse>(res, {
     statusCode: httpStatus.OK,

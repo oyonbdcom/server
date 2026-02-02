@@ -45,7 +45,7 @@ const authLimiter = rateLimit({
 });
 
 // ৩. প্রয়োগ করার সঠিক নিয়ম
-app.use('/api/v1/auth', authLimiter); // এখানে শুধু authLimiter কাজ করবে
+// app.use('/api/v1/auth', authLimiter); // এখানে শুধু authLimiter কাজ করবে
 
 // auth ছাড়া বাকি সব রাউটে generalLimiter দিতে এভাবে লিখুন:
 app.use('/api/v1/appointments', generalLimiter);
