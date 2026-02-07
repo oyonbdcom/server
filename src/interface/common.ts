@@ -14,7 +14,7 @@ export type IGenericResponse<T, N = Record<string, unknown>> = {
     page: number;
     limit: number;
     total: number;
-    totalPage?: number;
+    totalPage?: number | undefined;
   };
   data: T;
   stats?: N; // N is optional in the object and has a default type

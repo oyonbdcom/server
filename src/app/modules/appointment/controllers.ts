@@ -12,13 +12,13 @@ import { AppointmentService } from './service';
 
 // Create Appointment
 const sendBookingOtp = catchAsync(async (req, res) => {
-  const { phoneNumber } = req.body;
+  const payload = req.body;
 
-  if (!phoneNumber) {
+  if (!payload) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'ফোন নম্বর প্রদান করা আবশ্যক');
   }
 
-  const result = await AppointmentService.sendBookingOtp(phoneNumber);
+  const result = await AppointmentService.sendBookingOtp(payload);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -27,33 +27,52 @@ const sendBookingOtp = catchAsync(async (req, res) => {
     data: null,
   });
 });
-const createAppointmentGuest = catchAsync(async (req, res) => {
+const createAppointment = catchAsync(async (req, res) => {
   const appointmentData = req.body;
+  const authUser = req.user;
 
-  // 2. Call service with both payload and existing user ID
-  const result = await AppointmentService.createAppointmentGuest(appointmentData);
+  const result = await AppointmentService.createAppointment(appointmentData, authUser);
 
   const { refreshToken, accessToken, appointment, user } = result;
 
-  // 3. Set Refresh Token in HTTP-only cookie for security
-  const cookieOptions = {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: true, // Prevents CSRF
-  };
+  // Prevents CSRF };
 
-  res.cookie('refreshToken', refreshToken, cookieOptions);
+  // 🍪 Only set cookie if refreshToken exists (guest user)
+  if (refreshToken) {
+    const cookieOptions = {
+      secure: process.env.NODE_ENV === 'production',
+      httpOnly: true,
+      sameSite: true,
+    };
+
+    res.cookie('refreshToken', refreshToken, cookieOptions);
+  }
+
+  // 📤 Response (token optional)
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: 'Appointment booked successfully',
+    data: {
+      ...(accessToken && { accessToken }),
+      user,
+      appointment,
+    },
+  });
+});
+
+const createAppointmentForAdmin = catchAsync(async (req, res) => {
+  const appointmentData = req.body;
+
+  // 2. Call service with both payload and existing user ID
+  const result = await AppointmentService.createAppointmentForAdmin(appointmentData);
 
   // 4. Send response including the appointment details and access token
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
     success: true,
     message: 'Appointment booked successfully',
-    data: {
-      accessToken,
-      user,
-      appointment,
-    },
+    data: result,
   });
 });
 const createAppointmentForRegisteredUser = catchAsync(async (req, res) => {
@@ -93,6 +112,27 @@ const getMyAppointments = catchAsync(async (req, res) => {
     stats: result?.stats,
   });
 });
+const exportDoctorDailyPdf = catchAsync(async (req, res) => {
+  const filters = pick(req.query, AppointmentsFilterableFields);
+  const userId = req.user?.id;
+
+  // 2. Your existing validation handles the 'undefined' case
+  if (!userId) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'doctorId is required');
+  }
+
+  // 3. TS is now happy because doctorId is guaranteed to be a string here
+  const pdfBuffer = await AppointmentService.exportDailyPdf(userId, filters);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'inline; filename="doctor-opd-list.pdf"');
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Appointment updated successfully',
+    data: pdfBuffer,
+  });
+});
 // Reschedule/Update Appointment
 const updateAppointment = catchAsync(async (req, res) => {
   const aptId = req.params.aptId as string;
@@ -113,8 +153,10 @@ const updateAppointment = catchAsync(async (req, res) => {
 
 export const AppointmentsController = {
   getMyAppointments,
+  createAppointmentForAdmin,
   createAppointmentForRegisteredUser,
-  createAppointmentGuest,
+  createAppointment,
   updateAppointment,
+  exportDoctorDailyPdf,
   sendBookingOtp,
 };

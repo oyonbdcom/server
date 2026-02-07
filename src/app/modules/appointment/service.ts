@@ -1,28 +1,37 @@
+import { AppointmentStatus, Prisma } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import httpStatus from 'http-status';
-import { IGenericResponse } from './../../../interface/common';
-
-import { AppointmentStatus, Prisma } from '@prisma/client';
-
+import { JwtPayload } from 'jsonwebtoken';
+import path from 'path';
+import PDFDocument from 'pdfkit';
+import config from '../../../config/config';
+import { IOptions, paginationCalculator } from '../../../helper';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
-
-import { JwtPayload } from 'jsonwebtoken';
-import { IOptions, paginationCalculator } from '../../../helper';
 import { createSlug } from '../../../utils/createSlug';
 import { sendPushNotification } from '../../../utils/notification.utils';
+import { IGenericResponse } from './../../../interface/common';
+
+import { sendSMS } from '../../../utils/sendSms';
+import { bdEndOfDay, bdNow, bdStartOfDay } from '../../../utils/timezone';
 import { appointmentPopulate, generateAppointmentCode, generateTokens } from './constant';
-import { IAppointmentCreateInput, IAppointmentResponse, IAppointmentStats } from './interface';
+import {
+  IAppointmentCreateInput,
+  IAppointmentResponse,
+  IAppointmentStats,
+  IAppointmentUpdateInput,
+} from './interface';
 
 const getMyAppointments = async (
   user: JwtPayload | undefined,
   filters: {
     date?: string;
     status?: AppointmentStatus;
+    doctorId?: string;
   },
   options: IOptions,
 ): Promise<IGenericResponse<IAppointmentResponse[], IAppointmentStats>> => {
-  const { status, date } = filters;
+  const { status, date, doctorId } = filters;
   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
 
   const where: Prisma.AppointmentWhereInput = {};
@@ -36,21 +45,28 @@ const getMyAppointments = async (
     where.clinicId = user?.id;
   }
 
-  // 2. Date Filtering (applied to both data and stats)
+  if (doctorId) {
+    where.doctorId = doctorId;
+  }
+
+  const todayStart = bdStartOfDay(date).toDate();
+  const todayEnd = bdEndOfDay(date).toDate();
+
+  // 3. Date Filtering
   if (date) {
     where.appointmentDate = {
-      gte: new Date(new Date(date).setUTCHours(0, 0, 0, 0)),
-      lte: new Date(new Date(date).setUTCHours(23, 59, 59, 999)),
+      gte: todayStart,
+      lte: todayEnd,
     };
   }
 
-  // Define where clause for data (includes status filter)
+  // ৪. স্ট্যাটাস ফিল্টার (শুধুমাত্র মেইন ডাটার জন্য, স্ট্যাটস কাউন্টিং এর জন্য নয়)
   const dataWhere = { ...where };
   if (status) {
     dataWhere.status = status;
   }
 
-  // 3. Parallel Execution for Data, Total, and Specific Stats
+  // ৫. Parallel Execution
   const [result, total, pendingCount, scheduledCount, completedCount, cancelledCount] =
     await Promise.all([
       prisma.appointment.findMany({
@@ -60,7 +76,7 @@ const getMyAppointments = async (
         orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { serialNumber: 'asc' },
         include: appointmentPopulate,
       }),
-      prisma.appointment.count({ where }),
+      prisma.appointment.count({ where }), // নির্দিষ্ট ফিল্টারে মোট সংখ্যা
       prisma.appointment.count({ where: { ...where, status: 'PENDING' } }),
       prisma.appointment.count({ where: { ...where, status: 'SCHEDULED' } }),
       prisma.appointment.count({ where: { ...where, status: 'COMPLETED' } }),
@@ -87,65 +103,208 @@ const getMyAppointments = async (
   };
 };
 
-// ... existing imports
-const sendBookingOtp = async (phoneNumber: string): Promise<any> => {
-  // ১. ইউজার চেক করা (শুধুমাত্র দেখার জন্য যে সে অলরেডি ফুললি রেজিস্টার্ড কি না)
-  const user = await prisma.user.findUnique({
-    where: { phoneNumber },
+const exportDailyPdf = async (
+  userId: string,
+  filters: {
+    date?: string;
+    status?: AppointmentStatus;
+    doctorId?: string;
+  },
+): Promise<Buffer> => {
+  const { status, date, doctorId } = filters;
+  if (!date || !doctorId) {
+    throw new Error('Date and Doctor ID are required to export the report.');
+  }
+  const targetDate = date ? new Date(date) : new Date();
+  const todayStart = bdStartOfDay(targetDate).toDate();
+  const todayEnd = bdEndOfDay(targetDate).toDate();
+
+  // Fetching Names
+  const [doctor, clinic] = await Promise.all([
+    prisma.user.findUnique({ where: { id: doctorId }, select: { name: true } }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, clinic: { select: { address: true, phoneNumber: true } } },
+    }),
+  ]);
+  const statusFilter = status
+    ? (status as AppointmentStatus) // If single status is passed
+    : { in: ['PENDING', 'SCHEDULED'] as AppointmentStatus[] };
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      doctorId,
+      appointmentDate: { gte: todayStart, lte: todayEnd },
+      status: statusFilter,
+    },
+    orderBy: { serialNumber: 'asc' },
     select: {
-      isDefaultPassword: true,
-      password: true,
+      serialNumber: true,
+      patientName: true,
+      phoneNumber: true,
+      address: true,
+      refby: true,
     },
   });
 
-  // ২. যদি ইউজার থাকে এবং সে ভেরিফাইড হয় (পাসওয়ার্ড সেট করা থাকে), তবেই লগইন করতে বলব
-  if (user && !user.isDefaultPassword && user.password) {
-    throw new ApiError(
-      httpStatus.FORBIDDEN,
-      'আপনার মোবাইল নম্বরটি ইতিমধ্যে নিবন্ধিত। দয়া করে লগইন করুন।',
-    );
+  const doc = new PDFDocument({ size: 'A4', margin: 40 });
+  const chunks: Buffer[] = [];
+  doc.on('data', (chunk) => chunks.push(chunk));
+
+  const pdfBuffer: Buffer = await new Promise((resolve, reject) => {
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', (err) => reject(err));
+
+    const fontPath = path.join(__dirname, '../../../assets/NotoSansBengali_Condensed-Regular.ttf');
+    doc.font(fontPath);
+
+    // --- Header Section ---
+    const clinicName = (clinic?.name || 'HEALTH CLINIC').toUpperCase();
+    doc.fillColor('#1a2a3a').fontSize(22).text(clinicName, { align: 'center' });
+
+    const clinicAddress = clinic?.clinic?.address || 'Address not provided';
+    const clinicPhone = clinic?.clinic?.phoneNumber || 'No Contact Info';
+    doc
+      .fontSize(10)
+      .fillColor('#555')
+      .text(`${clinicAddress} | Support: ${clinicPhone}`, { align: 'center' });
+    doc.moveDown(1.5);
+
+    // Separator Line
+    doc
+      .moveTo(40, doc.y - 10)
+      .lineTo(555, doc.y - 10)
+      .strokeColor('#ccc')
+      .lineWidth(0.5)
+      .stroke();
+
+    // Doctor Info
+    doc
+      .fillColor('#000')
+      .fontSize(12)
+      .text(`Doctor: Dr. ${doctor?.name || 'N/A'}`);
+    doc.text(`Schedule Date: ${date}`, { align: 'left' });
+    doc.moveDown(1);
+
+    // --- Table Constants (Updated for 5 Columns) ---
+    const tableTop = doc.y;
+    // We redistributed widths to accommodate 'Ref By'
+    const colWidths = { sl: 30, name: 130, phone: 100, address: 155, ref: 100 };
+    const colPositions = {
+      sl: 40,
+      name: 40 + colWidths.sl,
+      phone: 40 + colWidths.sl + colWidths.name,
+      address: 40 + colWidths.sl + colWidths.name + colWidths.phone,
+      ref: 40 + colWidths.sl + colWidths.name + colWidths.phone + colWidths.address,
+    };
+    const rowHeight = 25;
+    const tableWidth = 515;
+
+    // --- Draw Table Header ---
+    doc.rect(40, tableTop, tableWidth, rowHeight).fill('#2c3e50');
+    doc.fillColor('#ffffff').fontSize(10);
+    doc.text('SL', colPositions.sl + 5, tableTop + 8);
+    doc.text('Patient Name', colPositions.name + 5, tableTop + 8);
+    doc.text('Phone', colPositions.phone + 5, tableTop + 8);
+    doc.text('Address', colPositions.address + 5, tableTop + 8);
+    doc.text('Ref. By', colPositions.ref + 5, tableTop + 8); // New Header
+
+    let currentY = tableTop + rowHeight;
+    const safeString = (val: any) => (val ? String(val) : '-');
+
+    // --- Table Rows ---
+    appointments.forEach((apt, index) => {
+      if (index % 2 !== 0) doc.rect(40, currentY, tableWidth, rowHeight).fill('#f9f9f9');
+
+      doc.fillColor('#000').fontSize(9);
+      doc.text(safeString(apt.serialNumber), colPositions.sl + 5, currentY + 8);
+      doc.text(safeString(apt.patientName), colPositions.name + 5, currentY + 8, {
+        width: colWidths.name - 5,
+        lineBreak: false,
+      });
+      doc.text(safeString(apt.phoneNumber), colPositions.phone + 5, currentY + 8);
+      doc.text(safeString(apt.address), colPositions.address + 5, currentY + 8, {
+        width: colWidths.address - 5,
+        lineBreak: false,
+      });
+      doc.text(safeString(apt.refby), colPositions.ref + 5, currentY + 8, {
+        width: colWidths.ref - 5,
+        lineBreak: false,
+      }); // New Row Data
+
+      doc
+        .moveTo(40, currentY + rowHeight)
+        .lineTo(40 + tableWidth, currentY + rowHeight)
+        .strokeColor('#ccc')
+        .lineWidth(0.5)
+        .stroke();
+      currentY += rowHeight;
+
+      if (currentY > 750) {
+        doc.addPage();
+        currentY = 50;
+      }
+    });
+
+    // --- Draw Vertical Column Borders ---
+    const verticalLines = [
+      40,
+      colPositions.name,
+      colPositions.phone,
+      colPositions.address,
+      colPositions.ref, // Added line for Ref By
+      40 + tableWidth,
+    ];
+
+    verticalLines.forEach((x) => {
+      doc.moveTo(x, tableTop).lineTo(x, currentY).strokeColor('#2c3e50').lineWidth(0.5).stroke();
+    });
+
+    doc.end();
+  });
+
+  return pdfBuffer;
+};
+
+// ... existing imports
+const sendBookingOtp = async (payload: IAppointmentCreateInput): Promise<any> => {
+  const { phoneNumber, patientName, doctorId } = payload;
+
+  // ৪. ওটিপি স্প্যাম প্রোটেকশন (১ মিনিট গ্যাপ)
+  const existingOtp = await prisma.otp.findUnique({ where: { phoneNumber } });
+  if (existingOtp) {
+    const lastSent = new Date(existingOtp.updatedAt).getTime();
+    if (Date.now() - lastSent < 60000) {
+      throw new ApiError(httpStatus.TOO_MANY_REQUESTS, 'দয়া করে ১ মিনিট অপেক্ষা করুন।');
+    }
   }
 
-  // ৩. ওটিপি জেনারেট করা
+  // ৫. ওটিপি জেনারেট ও সেভ
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // ৫ মিনিট মেয়াদ
+  const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
 
-  // ৪. ওটিপি সেভ বা আপডেট করা (Upsert ব্যবহার করা হয়েছে যাতে ডুপ্লিকেট এরর না আসে)
   await prisma.otp.upsert({
     where: { phoneNumber },
-    update: {
-      otp,
-      otpExpires,
-    },
-    create: {
-      phoneNumber,
-      otp,
-      otpExpires,
-    },
+    update: { otp, otpExpires, updatedAt: new Date() },
+    create: { phoneNumber, otp, otpExpires },
   });
 
-  // const message = `আপনার ভেরিফিকেশন কোডটি হলো: ${otp}. এটি ৫ মিনিটের জন্য কার্যকর।`;
-  // const smsResponse = await sendSMS(phoneNumber, message);
+  // ৫. SMS পাঠানোর লজিক
+  const message = `${config.site.siteName || 'Sasthik'}: Your verification code is ${otp}. Stay healthy with us!`;
 
-  // if (!smsResponse.success) {
-  //   // যদি SMS পাঠানো ব্যর্থ হয়
-  //   throw new ApiError(
-  //     httpStatus.INTERNAL_SERVER_ERROR,
-  //     'SMS পাঠাতে সমস্যা হয়েছে, আবার চেষ্টা করুন।',
-  //   );
-  // }
+  // await sendSMS(phoneNumber, message);
 
   return {
     success: true,
-    message: 'আপনার মোবাইল নম্বরে ৬ ডিজিটের ওটিপি পাঠানো হয়েছে।',
+    message: 'আপনার মোবাইলে ৬ ডিজিটের ওটিপি পাঠানো হয়েছে।',
   };
 };
 
-const createAppointmentGuest = async (
+export const createAppointment = async (
   payload: IAppointmentCreateInput & { otp: string },
+  authUser?: JwtPayload,
 ): Promise<any> => {
   const result = await prisma.$transaction(async (tx) => {
-    // ১. ওটিপি ভেরিফিকেশন
+    // 1️⃣ OTP validation
     const otpRecord = await tx.otp.findUnique({
       where: { phoneNumber: payload.phoneNumber },
     });
@@ -158,86 +317,262 @@ const createAppointmentGuest = async (
       throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটির মেয়াদ শেষ হয়ে গেছে।');
     }
 
-    // ২. প্রি-চেক (Unique Constraint Error এড়াতে)
-    const existingUser = await tx.user.findUnique({
-      where: { phoneNumber: payload.phoneNumber },
+    // 2️⃣ Duplicate booking check (same day, same patient & doctor)
+    const todayStart = bdStartOfDay(new Date()).toDate();
+    const todayEnd = bdEndOfDay(new Date()).toDate();
+
+    const alreadyExists = await tx.appointment.findFirst({
+      where: {
+        phoneNumber: payload.phoneNumber,
+        doctorId: payload.doctorId,
+        patientName: payload.patientName,
+        ptAge: String(payload.ptAge),
+        appointmentDate: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+        status: {
+          in: ['PENDING', 'SCHEDULED'],
+        },
+      },
     });
 
-    if (existingUser) {
+    if (alreadyExists) {
       throw new ApiError(
         httpStatus.CONFLICT,
-        'এই নম্বরটি ইতিমধ্যে নিবন্ধিত। অনুগ্রহ করে লগইন করুন।',
+        `${payload.patientName}-এর জন্য এই তারিখে ইতিমধ্যে বুকিং আছে।`,
       );
     }
 
-    const slug = createSlug(payload.patientName);
-    const hashedPassword = await bcrypt.hash('Default3@#', 12);
+    let targetUser = null;
+    let isNew = false;
 
-    // ৩. নতুন ইউজার ও পেশেন্ট প্রোফাইল তৈরি
-    const newUser = await tx.user.create({
-      data: {
-        name: payload.patientName,
-        phoneNumber: payload.phoneNumber,
-        role: 'PATIENT',
-        password: hashedPassword,
-        isDefaultPassword: true,
-        patient: {
-          create: {
-            address: payload.address || null,
-            slug,
+    // 3️⃣ Logged-in user
+    if (authUser) {
+      targetUser = await tx.user.findUnique({
+        where: { id: authUser.id },
+        include: { patient: true },
+      });
+
+      if (!targetUser) {
+        throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid logged-in user');
+      }
+
+      if (targetUser.role !== 'PATIENT') {
+        throw new ApiError(
+          httpStatus.FORBIDDEN,
+          'শুধুমাত্র পেশেন্ট অ্যাকাউন্ট দিয়ে বুকিং করা যাবে।',
+        );
+      }
+    } else {
+      // 4️⃣ Guest user flow
+      targetUser = await tx.user.findUnique({
+        where: { phoneNumber: payload.phoneNumber },
+        include: { patient: true },
+      });
+
+      if (targetUser && targetUser.role !== 'PATIENT') {
+        throw new ApiError(
+          httpStatus.FORBIDDEN,
+          'এই নম্বরটি চিকিৎসক বা অন্য রোলের জন্য নিবন্ধিত। শুধুমাত্র পেশেন্ট অ্যাকাউন্ট সম্ভব।',
+        );
+      }
+
+      if (!targetUser) {
+        isNew = true;
+        const slug = createSlug(payload.patientName);
+        const hashedPassword = await bcrypt.hash(config.default_password || 'Password@123', 12);
+
+        targetUser = await tx.user.create({
+          data: {
+            name: payload.patientName,
+            phoneNumber: payload.phoneNumber,
+            role: 'PATIENT',
+            password: hashedPassword,
+            isDefaultPassword: true,
+            patient: {
+              create: {
+                address: payload.address || null,
+                slug,
+              },
+            },
           },
-        },
-      },
-      include: { patient: true },
-    });
+          include: { patient: true },
+        });
+      }
+    }
 
-    // ৪. অ্যাপয়েন্টমেন্ট প্রসেসিং
-    const appointmentDay = new Date(payload.appointmentDate);
-    const startDate = new Date(appointmentDay.setUTCHours(0, 0, 0, 0));
-
-    // ৫. অ্যাপয়েন্টমেন্ট তৈরি
+    // 5️⃣ Create appointment (payload phone used always)
     const newAppointment = await tx.appointment.create({
       data: {
         patientName: payload.patientName,
         ptAge: String(payload.ptAge),
         phoneNumber: payload.phoneNumber,
         address: payload.address || null,
-        appointmentDate: startDate,
+        appointmentDate: bdNow().toDate(),
         status: 'PENDING',
         code: generateAppointmentCode(6),
         note: payload.note || null,
         doctorId: payload.doctorId,
         clinicId: payload.clinicId,
-        patientId: newUser.id, // User ID হিসেবে ব্যবহার হচ্ছে
-        discount: payload.discount,
+        patientId: targetUser.id,
+        discount: payload.discount || 0,
       },
     });
 
-    // ৬. ক্লিনআপ এবং টোকেন আপডেট
+    // 6️⃣ OTP cleanup
     await tx.otp.delete({ where: { phoneNumber: payload.phoneNumber } });
 
-    const tokens = generateTokens(newUser);
-    await tx.user.update({
-      where: { id: newUser.id },
-      data: {
-        refreshToken: tokens.refreshToken,
-        lastLoginAt: new Date(),
-      },
-    });
+    // 7️⃣ Generate token only for guest users
+    let tokens = null;
+    if (!authUser) {
+      tokens = generateTokens(targetUser);
 
+      await tx.user.update({
+        where: { id: targetUser.id },
+        data: {
+          refreshToken: tokens.refreshToken,
+          lastLoginAt: new Date(),
+        },
+      });
+    }
+
+    // 8️⃣ Return
     return {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
+      ...(tokens && {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      }),
       user: {
-        id: newUser.id,
-        name: newUser.name,
-        role: newUser.role,
+        id: targetUser.id,
+        name: targetUser.name,
+        role: targetUser.role,
       },
       appointment: newAppointment,
+      isNewUser: isNew,
     };
   });
 
   return result;
+};
+
+const createAppointmentForAdmin = async (payload: IAppointmentCreateInput): Promise<any> => {
+  const todayStart = bdStartOfDay(new Date()).toDate(); // BD 00:00 → UTC
+  const todayEnd = bdEndOfDay(new Date()).toDate(); // BD 23:59 → UTC
+
+  const { newAppointment, isNew } = await prisma.$transaction(async (tx) => {
+    // 1️⃣ Duplicate booking check (BD date based)
+    const alreadyExists = await tx.appointment.findFirst({
+      where: {
+        patientName: payload.patientName,
+        ptAge: String(payload.ptAge),
+        doctorId: payload.doctorId,
+        appointmentDate: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+        status: {
+          in: ['PENDING', 'SCHEDULED'],
+        },
+      },
+    });
+
+    if (alreadyExists) {
+      throw new ApiError(
+        httpStatus.CONFLICT,
+        `${payload.patientName}-এর জন্য আজকে একটি বুকিং আছে।`,
+      );
+    }
+
+    // 2️⃣ User check
+    let targetUser = await tx.user.findUnique({
+      where: { phoneNumber: payload.phoneNumber },
+    });
+
+    if (targetUser && targetUser.role !== 'PATIENT') {
+      throw new ApiError(httpStatus.FORBIDDEN, 'এই নম্বরটি পেশেন্ট অ্যাকাউন্টের জন্য নয়।');
+    }
+
+    // 3️⃣ Create user if not exists
+    let isNewUser = false;
+
+    if (!targetUser) {
+      isNewUser = true;
+
+      const slug = createSlug(payload.patientName);
+      const hashedPassword = await bcrypt.hash(config.default_password || 'Password@123', 12);
+
+      targetUser = await tx.user.create({
+        data: {
+          name: payload.patientName,
+          phoneNumber: payload.phoneNumber,
+          role: 'PATIENT',
+          password: hashedPassword,
+          isDefaultPassword: true,
+          patient: {
+            create: {
+              address: payload.address || null,
+              slug,
+            },
+          },
+        },
+      });
+    }
+
+    // 4️⃣ Create appointment (IMPORTANT PART)
+    const appointment = await tx.appointment.create({
+      data: {
+        patientName: payload.patientName,
+        ptAge: String(payload.ptAge),
+        phoneNumber: payload.phoneNumber,
+        address: payload.address || null,
+        serialNumber: payload.serialNumber,
+        appointmentDate: bdNow().toDate(),
+
+        status: 'SCHEDULED',
+        code: generateAppointmentCode(6),
+        doctorId: payload.doctorId,
+        clinicId: payload.clinicId,
+        patientId: targetUser.id,
+        discount: payload.discount || 0,
+        refby: payload?.refby,
+      },
+      select: {
+        serialNumber: true,
+        doctor: {
+          select: { name: true },
+        },
+      },
+    });
+
+    return { newAppointment: appointment, isNew: isNewUser };
+  });
+
+  try {
+    const siteName = config.site.siteName || 'Sasthik';
+    const siteLink = config.origin || 'https://sasthik.com';
+    const appointmentNumber = newAppointment.serialNumber;
+    const doctorName = newAppointment.doctor.name || 'your doctor'; // fallback if not provided
+
+    let welcomeMessage = '';
+
+    if (isNew) {
+      // New patient
+      welcomeMessage = `${siteName}: Your appointment with Dr. ${doctorName} is confirmed! 
+ID: ${payload?.phoneNumber}, Pass: ${config.default_password || 'Password@123'} 
+Serial: ${appointmentNumber}. Details: ${siteLink}/login`;
+    } else {
+      // Existing patient
+      welcomeMessage = `${siteName}: Your appointment with Dr. ${doctorName} is confirmed.
+Serial: ${appointmentNumber}. Details: ${siteLink}/auth/login`;
+    }
+
+    await sendSMS(payload?.phoneNumber, welcomeMessage);
+  } catch (smsError) {
+    console.error('Failed to send SMS:', smsError);
+  }
+
+  return newAppointment;
 };
 
 const createAppointmentForRegisteredUser = async (
@@ -324,36 +659,58 @@ const createAppointmentForRegisteredUser = async (
 // Update Appointment Reason/Date (Update)
 const updateAppointment = async (
   id: string,
-
-  data: any,
+  data: Partial<IAppointmentUpdateInput>, // type-safe
 ): Promise<IAppointmentResponse> => {
-  // 1. Validate ID
+  // 1️⃣ Validate ID
   if (!id) throw new ApiError(httpStatus.BAD_REQUEST, 'Appointment ID is required');
 
-  // 2. Auth Check: Verify ownership and existence in one query
+  // 2️⃣ Find existing appointment
   const appointment = await prisma.appointment.findUnique({
     where: { id },
+    include: appointmentPopulate,
   });
 
   if (!appointment) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Appointment not found');
   }
 
-  // 3. Perform the status update
-  // 3. Perform the status update
-  const result = await prisma.appointment.update({
+  // 3️⃣ Check if SMS needs to be sent
+  const shouldSendSMS = appointment.status === 'PENDING' && data.status === 'SCHEDULED';
+
+  // 4️⃣ Update appointment
+  const updatedAppointment = await prisma.appointment.update({
     where: { id },
     data,
     include: appointmentPopulate,
   });
 
-  return result as unknown as IAppointmentResponse;
+  // 5️⃣ Send SMS if required (async, but safe)
+  if (shouldSendSMS && updatedAppointment.phoneNumber) {
+    try {
+      const siteName = config.site.siteName || 'Sasthik';
+      const siteLink = config.origin || 'https://sasthik.com';
+      const doctorName = updatedAppointment.doctor?.name || 'your doctor';
+      const serialNumber = updatedAppointment.serialNumber ?? 'N/A';
+
+      const welcomeMessage = `${siteName}: Your appointment with Dr. ${doctorName} is confirmed.
+Serial: ${serialNumber}. Details: ${siteLink}/auth/login`;
+
+      await sendSMS(updatedAppointment.phoneNumber, welcomeMessage);
+    } catch (error) {
+      console.error('Failed to send appointment SMS:', error);
+    }
+  }
+
+  // 6️⃣ Return updated appointment
+  return updatedAppointment as IAppointmentResponse;
 };
 
 export const AppointmentService = {
   getMyAppointments,
   sendBookingOtp,
+  exportDailyPdf,
   createAppointmentForRegisteredUser,
-  createAppointmentGuest,
+  createAppointment,
+  createAppointmentForAdmin,
   updateAppointment,
 };

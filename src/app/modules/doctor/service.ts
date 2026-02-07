@@ -7,13 +7,14 @@ import { IGenericResponse } from '../../../interface/common';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
 
+import config from '../../../config/config';
 import { createSlug } from '../../../utils/createSlug';
 import { DOCTOR_SELECT } from './constant';
 import { IDoctorResponse, IDoctorStats } from './interface';
 import { CreateDoctorInput, UpdateDoctorInput } from './zodValidation';
 
 const createDoctor = async (doctorData: CreateDoctorInput): Promise<IDoctorResponse | null> => {
-  const defaultPassword = 'Password@123';
+  const defaultPassword = config?.default_password || 'Password@123';
   const hashedPassword = await bcrypt.hash(doctorData.user?.password || defaultPassword, 10);
 
   const doctor = await prisma.doctor.create({
@@ -174,24 +175,49 @@ const getDoctorStats = async (): Promise<IDoctorStats> => {
   };
 };
 
-export const getDoctorById = async (identifier: string): Promise<IDoctorResponse> => {
+export const getDoctorById = async (
+  identifier: string,
+  page: number = 1,
+  limit: number = 10,
+): Promise<IDoctorResponse & { membershipsCount: number }> => {
   if (!identifier) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'আইডি বা স্ল্যাগ প্রদান করা বাধ্যতামূলক');
   }
 
-  // findUnique-এর পরিবর্তে findFirst ব্যবহার করা হয়েছে
+  const skip = (page - 1) * limit;
+
+  // ১. প্রথমে ডাক্তার ফেচ করুন (মেম্বারশিপ ছাড়া)
   const doctor = await prisma.doctor.findFirst({
     where: {
       OR: [{ userId: identifier }, { slug: identifier }],
     },
-    select: DOCTOR_SELECT,
+    select: {
+      ...DOCTOR_SELECT,
+      memberships: false,
+    },
   });
 
   if (!doctor) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'কাঙ্ক্ষিত ডাক্তারকে খুঁজে পাওয়া যায়নি');
+    throw new ApiError(httpStatus.NOT_FOUND, 'কাঙ্ক্ষিত ডাক্তারকে খুঁজে পাওয়া যায়নি');
   }
 
-  return doctor as IDoctorResponse;
+  // ২. মেম্বারশিপের জন্য আলাদা পেজিনেটেড কোয়েরি
+  const [memberships, totalMemberships] = await Promise.all([
+    prisma.membership.findMany({
+      where: { doctorId: doctor.id },
+      skip,
+      take: limit,
+      select: DOCTOR_SELECT.memberships.select,
+      orderBy: { discount: 'desc' },
+    }),
+    prisma.membership.count({ where: { doctorId: doctor.id } }),
+  ]);
+
+  return {
+    ...doctor,
+    memberships,
+    membershipsCount: totalMemberships, // ফ্রন্টএন্ডে পেজিনেশন দেখানোর জন্য
+  } as any;
 };
 const updateDoctor = async (
   userId: string,

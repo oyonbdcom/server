@@ -7,13 +7,15 @@ export interface IAppointmentResponse {
   id: string;
   appointmentDate: Date;
   status: AppointmentStatus | null;
-  serialNumber: number; // Note: 'number' should be lowercase in TS
+  serialNumber: number;
+  phoneNumber: string | null;
   code: string | null;
   type?: string | null;
   followUp?: string | null;
   duration?: string | null;
   createdAt: Date;
-  discount: string;
+  discount: number;
+  refby?: string | null;
   doctor: {
     id: string;
     name: string;

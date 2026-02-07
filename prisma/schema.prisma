@@ -85,9 +85,12 @@ model User {
 }
 
 model Otp {
+  id          String   @id @default(cuid())
   phoneNumber String   @unique
   otp         String
   otpExpires  DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([otp, phoneNumber])
 }
@@ -181,10 +184,10 @@ model Membership {
   id              String     @id @default(cuid())
   doctorId        String
   clinicId        String
-  fee             String
+  fee             Int        @default(0)
   active          Boolean    @default(true)
-  maxAppointments String
-  discount        String
+  maxAppointments Int        @default(0)
+  discount        Int        @default(0)
   expiresAt       DateTime   @default(now())
   doctor          Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   clinic          Clinic     @relation(fields: [clinicId], references: [id], onDelete: Cascade)
@@ -220,7 +223,8 @@ model Appointment {
   note            String?
   appointmentDate DateTime
   times           String?
-  discount        String?
+  discount        Int?
+  refby           String?
   serialNumber    Int?
   code            String?
   status          AppointmentStatus @default(SCHEDULED)

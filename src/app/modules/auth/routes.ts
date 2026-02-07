@@ -1,5 +1,6 @@
 import express from 'express';
 import { protect } from '../../../middlewares/authMiddleware';
+import { authLimiter, otpLimiter } from '../../../middlewares/rateMiddleware';
 import { zodValidate } from '../../../middlewares/zodValidation';
 import { AuthController } from './controllers';
 import { AuthValidation } from './zodValidation';
@@ -9,13 +10,19 @@ const routes = express.Router();
 routes.post('/register', zodValidate(AuthValidation.registerSchema), AuthController.register);
 routes.post(
   '/verify-otp',
+
   zodValidate(AuthValidation.verifyOtpSchema),
   AuthController.verifyOtpForExistingUser,
 );
 
-routes.post('/login', zodValidate(AuthValidation.loginSchema), AuthController.login);
+routes.post('/login', authLimiter, zodValidate(AuthValidation.loginSchema), AuthController.login);
 
-routes.post('/send-otp', zodValidate(AuthValidation.sendOtpSchema), AuthController.sendOtp);
+routes.post(
+  '/send-otp',
+  otpLimiter,
+  zodValidate(AuthValidation.sendOtpSchema),
+  AuthController.sendOtp,
+);
 // routes.post(
 //   '/forgot-verify-otp',
 //   zodValidate(AuthValidation.verifyOtpSchema),

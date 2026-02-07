@@ -202,6 +202,13 @@ const login = async (payload: {
 
 // send otp
 const sendOtp = async (phoneNumber: string): Promise<any> => {
+  const existingOtp = await prisma.otp.findUnique({ where: { phoneNumber } });
+  if (existingOtp && Date.now() - new Date(existingOtp.updatedAt).getTime() < 60000) {
+    throw new ApiError(
+      httpStatus.TOO_MANY_REQUESTS,
+      'দয়া করে ১ মিনিট অপেক্ষা করে আবার চেষ্টা করুন।',
+    );
+  }
   // ১. ৬ ডিজিটের ওটিপি জেনারেশন
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // ৫ মিনিট মেয়াদ

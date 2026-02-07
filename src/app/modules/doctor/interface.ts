@@ -44,9 +44,9 @@ export interface IDoctorStats {
 
 export interface IDoctorMembership {
   id: string;
-  fee: string;
-  maxAppointments: string;
-  discount: string;
+  fee: number;
+  maxAppointments: number;
+  discount: number;
   schedules: any[];
   clinic: {
     address: string;

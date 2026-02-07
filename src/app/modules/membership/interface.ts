@@ -13,9 +13,9 @@ export interface IMemberDoctor {
 
 export interface IMembershipResponse {
   id: string;
-  fee: string;
-  maxAppointments: string;
-  discount: string;
+  fee: number;
+  maxAppointments: number;
+  discount: number;
   createdAt: Date;
   updatedAt: Date;
   doctor?: any | null;

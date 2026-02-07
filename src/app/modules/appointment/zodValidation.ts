@@ -3,21 +3,20 @@ import z from 'zod';
 export const CreateAppointmentSchema = z.object({
   body: z.object({
     patientName: z.string().min(2, 'নাম আবশ্যক'),
-    ptAge: z.preprocess(
-      (val) => Number(val),
-      z.number().min(1, 'বয়স অন্তত ১ বছর হতে হবে').max(120, 'সঠিক বয়স দিন'),
-    ),
+    ptAge: z.coerce.number().min(1, 'বয়স আবশ্যক'),
 
     phoneNumber: z.string().length(14, 'মোবাইল নম্বর অবশ্যই ১১ ডিজিটের হতে হবে'),
     address: z.string().optional().or(z.literal('')),
-    discount: z.string().optional().or(z.literal('')),
+    discount: z.number().optional(),
     note: z.string().optional().or(z.literal('')),
 
     appointmentDate: z.string().min(1, 'তারিখ সিলেক্ট করুন'),
-
+    serialNumber: z.number().optional(),
     // সার্ভার সাইডে এগুলো ডাটাবেজ রিলেশনের জন্য প্রয়োজন হয়
-    doctorId: z.string().min(1, "ডাক্তার আইডি প্রয়োজন'"),
-    clinicId: z.string().min(1, 'ক্লিনিক আইডি প্রয়োজন'),
+    otp: z.string().min(6, "ওটিপি আবশ্যক'").optional(),
+    refby: z.string().min(2, "ওটিপি আবশ্যক'").optional(),
+    doctorId: z.string().min(1, "ডাক্তার আইডি আবশ্যক'"),
+    clinicId: z.string().min(1, 'ক্লিনিক আইডি আবশ্যক'),
   }),
 });
 

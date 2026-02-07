@@ -58,6 +58,52 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
     next(error); // Pass to global error handler
   }
 };
+export const protectOptional = async (req: Request, _res: Response, next: NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    // 🔓 Public access (no token)
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      req.user = undefined;
+      return next();
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    let decoded: JwtPayload | null = null;
+
+    try {
+      decoded = jwtTokenHelper.verifyToken(token, config.jwt.access_secret as string) as JwtPayload;
+    } catch {
+      // 🔓 Invalid / expired token → treat as guest
+      req.user = undefined;
+      return next();
+    }
+
+    if (!decoded?.userId) {
+      req.user = undefined;
+      return next();
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { id: true, role: true, deactivate: true },
+    });
+
+    if (!user || user.deactivate) {
+      req.user = undefined;
+      return next();
+    }
+
+    // ✅ Authenticated but optional
+    req.user = { id: user.id, role: user.role };
+    next();
+  } catch {
+    // 🔥 Never block public routes
+    req.user = undefined;
+    next();
+  }
+};
 
 // Role-based access
 export const restrictTo =
