@@ -38,8 +38,8 @@ const login = catchAsync(async (req, res) => {
 
   res.cookie('refreshToken', result.refreshToken, {
     httpOnly: true,
-    secure: config.env === 'production',
-    sameSite: config.env === 'production' ? 'none' : 'lax',
+    secure: true,
+    sameSite: 'none',
     maxAge: 365 * 24 * 60 * 60 * 1000,
     path: '/',
   });

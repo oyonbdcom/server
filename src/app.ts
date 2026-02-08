@@ -21,13 +21,13 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   }),
 );
+app.set('trust proxy', 1);
 // Security Middleware
 app.use(helmet());
 
 app.use(hpp());
 // ১. পুরো এপিআই-এর জন্য গ্লোবাল লিমিটর প্রয়োগ
 app.use('/api/v1', apiLimiter);
-app.set('trust proxy', 1);
 initializeFirebase();
 // CORS
 
