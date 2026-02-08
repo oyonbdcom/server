@@ -27,7 +27,7 @@ app.use(helmet());
 app.use(hpp());
 // ১. পুরো এপিআই-এর জন্য গ্লোবাল লিমিটর প্রয়োগ
 app.use('/api/v1', apiLimiter);
-// app.set('trust proxy', 1);
+app.set('trust proxy', 1);
 initializeFirebase();
 // CORS
 
