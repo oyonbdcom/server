@@ -3,19 +3,76 @@ import { Prisma } from '@prisma/client';
 export const DOCTOR_SELECT = {
   id: true,
   userId: true,
-  department: true,
-  specialization: true,
-  bio: true,
+  departmentId: true,
+  department: {
+    select: {
+      name: true,
+      slug: true,
+    },
+  },
+  areas: {
+    select: {
+      area: {
+        select: {
+          name: true,
+          district: {
+            select: {
+              name: true,
+              slug: true,
+            },
+          },
+        },
+      },
+    },
+  },
+  memberships: {
+    select: {
+      id: true,
+      discount: true,
+      fee: true,
+      clinic: {
+        select: {
+          id: true,
+          address: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              image: true,
+            },
+          },
+          area: {
+            select: {
+              name: true,
+              district: {
+                select: { name: true },
+              },
+            },
+          },
+        },
+      },
+      doctor: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              image: true,
+            },
+          },
+        },
+      },
+      schedules: true,
+    },
+  },
   slug: true,
+  specialization: true,
+  experience: true,
   gender: true,
-  district: true,
-  city: true,
-  country: true,
-  website: true,
   hospital: true,
-  degree: true,
   position: true,
-  active: true,
+  website: true,
   averageRating: true,
   reviewsCount: true,
   education: true,
@@ -26,51 +83,21 @@ export const DOCTOR_SELECT = {
       id: true,
       name: true,
       phoneNumber: true,
-      isPhoneVerified: true,
       image: true,
       role: true,
       deactivate: true,
-      lastLoginAt: true,
-    },
-  },
-  memberships: {
-    select: {
-      id: true,
-      fee: true,
-      maxAppointments: true,
-      discount: true,
-      schedules: true,
-      clinic: {
-        select: {
-          id: true,
-          userId: true,
-          address: true,
-          district: true,
-          city: true,
-          phoneNumber: true,
-          reviewsCount: true,
-          averageRating: true,
-          user: { select: { name: true, id: true, image: true } },
-        },
-      },
-      doctor: {
-        select: {
-          id: true,
-          userId: true,
-          specialization: true,
-          user: { select: { id: true, name: true, image: true } },
-        },
-      },
+      isPhoneVerified: true,
     },
   },
 } satisfies Prisma.DoctorSelect;
 export const DoctorFilterableFields = [
   'searchTerm',
   'department',
-  'specialization',
+  'area',
   'district',
-  'city',
+  'myAreaOnly',
   'minRating',
-  'active',
+  'deactivate',
   'gender',
+  'membership',
 ];

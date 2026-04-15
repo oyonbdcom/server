@@ -2,11 +2,12 @@ import { Schedule } from '@prisma/client';
 import httpStatus from 'http-status';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
+import { IScheduleResponse } from './interface';
 
 /**
  * Create a new schedule
  */
-const createSchedule = async (data: any): Promise<Schedule> => {
+const createSchedule = async (data: any): Promise<IScheduleResponse> => {
   const isMembershipExist = await prisma.membership.findUnique({
     where: { id: data.membershipId },
   });
@@ -25,7 +26,10 @@ const createSchedule = async (data: any): Promise<Schedule> => {
 /**
  * Update an existing schedule
  */
-const updateSchedule = async (id: string, payload: Partial<Schedule>): Promise<Schedule> => {
+const updateSchedule = async (
+  id: string,
+  payload: Partial<IScheduleResponse>,
+): Promise<IScheduleResponse> => {
   const isExist = await prisma.schedule.findUnique({
     where: { id },
   });

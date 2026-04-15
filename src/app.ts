@@ -9,7 +9,6 @@ import httpStatus from 'http-status';
 import router from './app/routes';
 import config from './config/config';
 import globalErrorHandler from './middlewares/globalErrorHandler';
-import { apiLimiter } from './middlewares/rateMiddleware';
 import { initializeFirebase } from './utils/firebaseAdmin';
 
 const app: Application = express();
@@ -27,7 +26,7 @@ app.use(helmet());
 
 app.use(hpp());
 // ১. পুরো এপিআই-এর জন্য গ্লোবাল লিমিটর প্রয়োগ
-app.use('/api/v1', apiLimiter);
+// app.use('/api/v1', apiLimiter);
 initializeFirebase();
 // CORS
 

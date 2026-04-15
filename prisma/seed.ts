@@ -1,154 +1,201 @@
-import { AppointmentStatus, Gender, PrismaClient, UserRole } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import { Gender, PrismaClient, ReviewStatus, ReviewTargetType, UserRole } from '@prisma/client';
+import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  const password = await bcrypt.hash('password123', 10);
+  const password = await bcrypt.hash('123456', 10);
 
-  console.log('--- Cleaning Database ---');
-  // Order matters due to foreign key constraints
-  const models = [
-    prisma.favoriteDoctor,
-    prisma.review,
-    prisma.appointment,
-    prisma.schedule,
-    prisma.membership,
-    prisma.medicalRecord,
-    prisma.doctor,
-    prisma.clinic,
-    prisma.patient,
-    prisma.user,
+  // ---------------- District + Area ----------------
+  const district = await prisma.district.create({
+    data: {
+      name: 'দিনাজপুর',
+      slug: 'dinajpur',
+      areas: {
+        create: [
+          { name: 'দিনাজপুর সদর', slug: 'dinajpur-sadar' },
+          { name: 'বিরগঞ্জ', slug: 'birganj' },
+          { name: 'সেতাবগঞ্জ', slug: 'setabganj' },
+          { name: 'পার্বতীপুর', slug: 'parbatipur' },
+          { name: 'ফুলবাড়ী', slug: 'phulbari' },
+        ],
+      },
+    },
+    include: { areas: true },
+  });
+
+  // ---------------- Department ----------------
+  const deptData = [
+    { name: 'কার্ডিওলজি', slug: 'cardiology' },
+    { name: 'মেডিসিন', slug: 'medicine' },
+    { name: 'নিউরোলজি', slug: 'neurology' },
+    { name: 'অর্থোপেডিক', slug: 'orthopedic' },
+    { name: 'চর্মরোগ', slug: 'dermatology' },
+    { name: 'শিশু বিভাগ', slug: 'pediatrics' },
   ];
-  //   for (const model of models) {
-  //     await model.deleteMany();
-  //   }
 
-  console.log('--- Seeding 5 Clinics ---');
-  const clinics = [];
-  const clinicNames = [
-    'Popular Diagnostic',
-    'Square Hospital',
-    'Labaid Medical',
-    'Ibn Sina',
-    'United Clinic',
-  ];
+  const departments = await Promise.all(deptData.map((d) => prisma.department.create({ data: d })));
 
-  for (let i = 0; i < 5; i++) {
+  // ---------------- Clinics ----------------
+  const clinics: any[] = [];
+
+  for (let i = 1; i <= 30; i++) {
+    const area = district.areas[i % district.areas.length];
+
     const user = await prisma.user.create({
       data: {
-        name: clinicNames[i],
-        email: `clinic${i}@example.com`,
+        name: `ক্লিনিক ${toBanglaNumber(i)}`,
+        phoneNumber: `+88019${String(i).padStart(8, '0')}`,
         password,
         role: UserRole.CLINIC,
-        image: `https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?q=80&w=200&auto=format&fit=crop`,
-        clinic: {
-          create: {
-            phoneNumber: `0171100000${i}`,
-            address: `${i * 10} Dhanmondi`,
-            city: 'Dhaka',
-            district: 'Dhaka',
-            averageRating: 4.0 + i * 0.1,
-          },
-        },
+        isPhoneVerified: true,
       },
-      include: { clinic: true },
     });
-    if (user.clinic) clinics.push(user.clinic);
+
+    const clinic = await prisma.clinic.create({
+      data: {
+        userId: user.id,
+        name: `সুস্থি ক্লিনিক ${i}`,
+        slug: `susthi-clinic-${i}`,
+        address: `${area.name}, দিনাজপুর`,
+        areaId: area.id,
+        active: true,
+      },
+    });
+
+    clinics.push({ clinic, user });
   }
 
-  console.log('--- Seeding 10 Doctors ---');
-  const departments = ['Cardiology', 'Neurology', 'Dermatology', 'Pediatrics', 'Internal Medicine'];
-  const doctors = [];
+  // ---------------- Doctors ----------------
+  const doctors: any[] = [];
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 1; i <= 30; i++) {
+    const area = district.areas[i % district.areas.length];
     const dept = departments[i % departments.length];
+
     const user = await prisma.user.create({
       data: {
-        name: `Dr. Specialist ${i + 1}`,
-        email: `doctor${i}@example.com`,
+        name: `ডাক্তার ${toBanglaNumber(i)}`,
+        phoneNumber: `+88016${String(i).padStart(8, '0')}`,
         password,
         role: UserRole.DOCTOR,
-        image: `https://i.pravatar.cc/150?u=doctor${i}`,
-        doctor: {
-          create: {
-            department: dept,
-            specialization: `${dept} Specialist`,
-            gender: i % 2 === 0 ? Gender.MALE : Gender.FEMALE,
-            city: 'Dhaka',
-            status: 'active',
-          },
-        },
+        isPhoneVerified: true,
       },
-      include: { doctor: true },
     });
-    if (user.doctor) doctors.push(user.doctor);
-  }
 
-  console.log('--- Seeding 5 Patients ---');
-  const patients = [];
-  for (let i = 0; i < 5; i++) {
-    const user = await prisma.user.create({
+    const doctor = await prisma.doctor.create({
       data: {
-        name: `Patient User ${i + 1}`,
-        email: `patient${i}@example.com`,
-        password,
-        role: UserRole.PATIENT,
-        patient: {
-          create: {
-            age: 20 + i,
-            gender: i % 2 === 0 ? Gender.MALE : Gender.FEMALE,
-            phoneNumber: `0180000000${i}`,
-          },
-        },
+        userId: user.id,
+        slug: `doctor-${i}`,
+        specialization: dept.name,
+        departmentId: dept.id,
+        position: 'কনসালটেন্ট',
+        hospital: `জেনারেল হাসপাতাল ${i}`,
+        gender: i % 2 === 0 ? Gender.MALE : Gender.FEMALE,
+        experience: 2 + i,
       },
-      include: { patient: true },
     });
-    if (user.patient) patients.push(user.patient);
-  }
 
-  console.log('--- Linking Memberships & Appointments ---');
-  // Every doctor works at at least 1 random clinic
-  for (const doc of doctors) {
-    const randomClinic = clinics[Math.floor(Math.random() * clinics.length)];
+    await prisma.doctorArea.create({
+      data: {
+        doctorId: doctor.id,
+        areaId: area.id,
+      },
+    });
+
+    const clinicRef = clinics[i % clinics.length];
 
     await prisma.membership.create({
       data: {
-        doctorId: doc.id,
-        clinicId: randomClinic.id,
-        fee: 500 + Math.random() * 500,
+        doctorId: doctor.id,
+        clinicId: clinicRef.clinic.id,
+        createdById: clinicRef.user.id,
+        fee: 500,
         schedules: {
-          create: {
-            days: ['Sunday', 'Tuesday', 'Thursday'],
-            startTime: '10:00 AM',
-            endTime: '01:00 PM',
-          },
+          create: [
+            { time: 'শনিবার বিকাল ৫টা - রাত ৮টা' },
+            { time: 'সোমবার বিকাল ৪টা - সন্ধ্যা ৭টা' },
+          ],
         },
       },
     });
+
+    doctors.push({ doctor, user });
   }
 
-  // Create a few random appointments
-  for (let i = 0; i < 5; i++) {
-    await prisma.appointment.create({
+  // ---------------- Patients ----------------
+  const patients: any[] = [];
+
+  for (let i = 1; i <= 3; i++) {
+    const user = await prisma.user.create({
       data: {
-        doctorId: doctors[i].id,
-        patientId: patients[i].id,
-        clinicId: clinics[0].id,
-        status: AppointmentStatus.SCHEDULED,
-        appointmentDate: new Date(),
+        name: `রোগী ${toBanglaNumber(i)}`,
+        phoneNumber: `+88015${String(i).padStart(8, '0')}`,
+        password,
+        role: UserRole.PATIENT,
+        isPhoneVerified: true,
       },
     });
+
+    await prisma.patient.create({
+      data: {
+        userId: user.id,
+        age: 20 + i,
+        gender: i % 2 === 0 ? Gender.FEMALE : Gender.MALE,
+        address: 'দিনাজপুর, বাংলাদেশ',
+      },
+    });
+
+    patients.push(user);
   }
 
-  console.log('✅ 10 Doctors, 5 Clinics, and 5 Patients seeded!');
+  // ---------------- Doctor Reviews ----------------
+  for (let i = 0; i < doctors.length; i++) {
+    for (let j = 0; j < 2; j++) {
+      const reviewer = patients[(i + j) % patients.length];
+
+      await prisma.review.create({
+        data: {
+          rating: 5,
+          comment: `ডাক্তার খুব ভালো (${j + 1})`,
+          targetId: doctors[i].user.id,
+          targetType: ReviewTargetType.DOCTOR,
+          reviewerId: reviewer.id,
+          status: ReviewStatus.APPROVED,
+        },
+      });
+    }
+  }
+
+  // ---------------- Clinic Reviews ----------------
+  for (let i = 0; i < clinics.length; i++) {
+    for (let j = 0; j < 2; j++) {
+      const reviewer = patients[(i + j) % patients.length];
+
+      await prisma.review.create({
+        data: {
+          rating: 4,
+          comment: `ক্লিনিক ভালো (${j + 1})`,
+          targetId: clinics[i].user.id,
+          targetType: ReviewTargetType.CLINIC,
+          reviewerId: reviewer.id,
+          status: ReviewStatus.APPROVED,
+        },
+      });
+    }
+  }
+
+  console.log('✅ বাংলা + ইংরেজি slug সহ seed complete');
 }
 
 main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());
+const toBanglaNumber = (num: number | string) => {
+  const engToBan = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+  return num
+    .toString()
+    .split('')
+    .map((d) => engToBan[Number(d)] || d)
+    .join('');
+};

@@ -20,7 +20,7 @@ export const sendPushNotification = async (userId: string, title: string, body: 
   try {
     // 2. Send via Firebase
     const response = await admin.messaging().sendEachForMulticast(message);
-
+    console.log('send notification');
     // 3. Cleanup: If Firebase says a token is invalid, delete it from our DB
     response.responses.forEach(async (resp, idx) => {
       if (!resp.success && resp.error?.code === 'messaging/registration-token-not-registered') {

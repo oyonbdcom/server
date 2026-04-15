@@ -6,12 +6,14 @@ import { ClinicRoutes } from '../modules/clinic/routes';
 
 import { AppointmentsRoutes } from '../modules/appointment/routes';
 import { DoctorRoutes } from '../modules/doctor/routes';
-import { FavoriteDoctorRoutes } from '../modules/favorite-doctor/routes';
+
+import { SetupRoutes } from '../modules/location/routes';
 import { MedicalHistoryRoutes } from '../modules/medical-history/routes';
 import { DeviceTokenRoutes } from '../modules/notification/routes';
 import { PatientRoutes } from '../modules/patient/routes';
 import { ReviewsRoutes } from '../modules/review/routes';
 import { ScheduleRoutes } from '../modules/schedule/routes';
+import { SummaryRoutes } from '../modules/summary/routes';
 import { UploadRoutes } from '../modules/upload/route';
 import { UserRoutes } from '../modules/user/routes';
 
@@ -21,6 +23,14 @@ const modulesRoute = [
   {
     path: '/auth',
     route: AuthRoutes,
+  },
+  {
+    path: '/summary',
+    route: SummaryRoutes,
+  },
+  {
+    path: '/setup',
+    route: SetupRoutes,
   },
   {
     path: '/users',
@@ -34,10 +44,7 @@ const modulesRoute = [
     path: '/patient',
     route: PatientRoutes,
   },
-  {
-    path: '/favorite',
-    route: FavoriteDoctorRoutes,
-  },
+
   {
     path: '/reviews',
     route: ReviewsRoutes,

@@ -26,21 +26,28 @@ const createMembership = catchAsync(async (req, res) => {
 
 const getClinicMemberships = catchAsync(async (req, res) => {
   const userId = req.user?.id;
-  const paginationOptions = pick(req.query, paginationFields);
 
   if (!userId) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized ');
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'আপনি লগইন করা নেই');
   }
 
-  const result = await MembershipService.getClinicMemberships(userId, paginationOptions);
+  // ✅ pagination
+  const paginationOptions = pick(req.query, paginationFields);
+
+  // ✅ filters (সব একসাথে)
+  const filters = pick(req.query, ['searchTerm', 'clinicId', 'doctorId']);
+
+  const result = await MembershipService.getMyMemberships(userId, filters, paginationOptions);
 
   sendResponse<IMembershipResponse[]>(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Memberships retrieved successfully',
-    data: result?.data || null,
+    message: 'আপনার তৈরি করা মেম্বারশিপগুলো সফলভাবে পাওয়া গেছে',
+    meta: result?.meta,
+    data: result?.data,
   });
 });
+
 const getMyDoctors = catchAsync(async (req, res) => {
   const userId = req.user?.id;
 
@@ -61,15 +68,11 @@ const getMyDoctors = catchAsync(async (req, res) => {
   });
 });
 
+//update membership
 const updateMemberships = catchAsync(async (req, res) => {
-  const userId = req.user?.id;
   const { membershipId } = req.params as { membershipId: string };
 
-  if (!userId) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized ');
-  }
-
-  const result = await MembershipService.updateMembership(userId, membershipId, req.body);
+  const result = await MembershipService.updateMembership(membershipId, req?.body);
 
   sendResponse<IMembershipResponse>(res, {
     statusCode: httpStatus.OK,

@@ -10,88 +10,207 @@ import ApiError from '../../../utils/apiError';
 import config from '../../../config/config';
 import { createSlug } from '../../../utils/createSlug';
 import { DOCTOR_SELECT } from './constant';
-import { IDoctorResponse, IDoctorStats } from './interface';
-import { CreateDoctorInput, UpdateDoctorInput } from './zodValidation';
+import { IDoctorResponse } from './interface';
+import { CreateDoctorInput } from './zodValidation';
 
 const createDoctor = async (doctorData: CreateDoctorInput): Promise<IDoctorResponse | null> => {
   const defaultPassword = config?.default_password || 'Password@123';
+
+  // ১. পাসওয়ার্ড হ্যাশ করা
   const hashedPassword = await bcrypt.hash(doctorData.user?.password || defaultPassword, 10);
 
+  // ২. প্রিজমা ক্রিয়েট অপারেশন
   const doctor = await prisma.doctor.create({
     data: {
       user: {
         create: {
-          name: doctorData.user?.name,
-          phoneNumber: doctorData.user?.phoneNumber,
+          name: doctorData.user.name,
+          phoneNumber: doctorData.user.phoneNumber,
           password: hashedPassword,
           role: UserRole.DOCTOR,
-          image: doctorData.user?.image,
+          image: doctorData.user.image || null,
+          deactivate: doctorData.user.deactivate ?? false,
+          isPhoneVerified: doctorData.user.isPhoneVerified ?? false,
         },
       },
-      department: doctorData.department,
+
+      // --- Doctor Fields ---
+      // স্লাগ যদি ফ্রন্টএন্ড থেকে আসে তবে সেটা ব্যবহার করুন, নাহলে জেনারেট করুন
+      slug: doctorData.slug || createSlug(doctorData.user.name),
+
       specialization: doctorData.specialization,
+      experience: doctorData.experience,
       hospital: doctorData.hospital,
-      degree: doctorData.degree,
-      website: doctorData.website,
-      position: doctorData.position,
-      bio: doctorData.bio,
-      slug: createSlug(doctorData.user?.name),
+      position: doctorData.position || '',
+      website: doctorData.website || '',
       gender: doctorData.gender,
-      district: doctorData.district,
-      city: doctorData.city,
-      country: doctorData.country ?? 'Bangladesh',
+
+      department: {
+        connect: {
+          id: doctorData.departmentId,
+        },
+      },
     },
     select: DOCTOR_SELECT,
   });
+
   if (!doctor) {
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to create doctor');
   }
-  return doctor as IDoctorResponse;
+
+  return doctor as any;
 };
 
+// add to manager area
+const addDoctorToArea = async (doctorId: string, userId: string): Promise<any> => {
+  // ১. চেক করা যে ইউজারটি একজন বৈধ ম্যানেজার কি না
+  const manager = await prisma.manager.findUnique({
+    where: { userId },
+  });
+
+  if (!manager) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'ম্যানেজার তথ্য খুঁজে পাওয়া যায়নি!');
+  }
+
+  // ২. চেক করা যে এই ডাক্তার অলরেডি ওই এরিয়াতে যুক্ত আছেন কি না
+  const isExists = await prisma.doctorArea.findFirst({
+    where: {
+      doctorId,
+      areaId: manager.areaId,
+    },
+  });
+
+  if (isExists) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'এই ডাক্তার ইতিমধ্যে আপনার এরিয়াতে যুক্ত আছেন!');
+  }
+
+  // ৩. DoctorArea টেবিলে নতুন এন্ট্রি তৈরি করা
+  const result = await prisma.doctorArea.create({
+    data: {
+      doctorId,
+      areaId: manager.areaId,
+    },
+  });
+
+  return result;
+};
+
+const removeDoctorFromArea = async (doctorId: string, userId: string) => {
+  // ১. ম্যানেজার ভেরিফাই করা
+  const manager = await prisma.manager.findUnique({
+    where: { userId },
+  });
+
+  if (!manager) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'ম্যানেজার তথ্য খুঁজে পাওয়া যায়নি!');
+  }
+
+  // ২. DoctorArea থেকে ওই ডাক্তার এবং ওই ম্যানেজারের এরিয়া আইডি ম্যাচ করে ডিলিট করা
+  const result = await prisma.doctorArea.deleteMany({
+    where: {
+      doctorId: doctorId,
+      areaId: manager.areaId,
+    },
+  });
+
+  if (result.count === 0) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'এই ডাক্তার আপনার এরিয়াতে নেই বা অলরেডি রিমুভ করা হয়েছে!',
+    );
+  }
+
+  return result;
+};
+// all doctor with manager doctor
 const getDoctors = async (
   filter: {
     searchTerm?: string;
-    department?: string;
-    specialization?: string;
-    district?: string;
-    city?: string;
+    department?: string; // এটি এখন slug হিসেবে আসবে
+    district?: string; // এটি এখন slug হিসেবে আসবে
+    area?: string; // এটি এখন slug হিসেবে আসবে
     minRating?: string;
-    active?: string;
+    deactivate?: string;
     gender?: 'MALE' | 'FEMALE';
+    myAreaOnly?: string;
+    membership: string;
   },
   options: IOptions,
+  userId?: string,
 ): Promise<IGenericResponse<IDoctorResponse[]>> => {
   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
-  const { searchTerm, active, minRating, gender, department, ...filterData } = filter;
+  const {
+    searchTerm,
+    deactivate,
+    minRating,
+    gender,
+    department,
+    membership,
+    district,
+    area,
+    myAreaOnly,
+  } = filter;
 
   const andConditions: Prisma.DoctorWhereInput[] = [];
 
-  // 1. 🔍 Global Search (OR Condition)
+  // ১. গ্লোবাল সার্চ (আগের মতোই থাকবে)
   if (searchTerm) {
     andConditions.push({
       OR: [
         { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { department: { contains: searchTerm, mode: 'insensitive' } },
+        { specialization: { contains: searchTerm, mode: 'insensitive' } },
+        { hospital: { contains: searchTerm, mode: 'insensitive' } },
       ],
     });
   }
-  if (department) {
-    andConditions.push({ department: { contains: department, mode: 'insensitive' } });
+
+  // ২. মাই এরিয়া ফিল্টার (ম্যানেজারের জন্য)
+  if (myAreaOnly === 'true') {
+    if (!userId) {
+      throw new ApiError(httpStatus.UNAUTHORIZED, 'ম্যানেজার হিসেবে লগইন করুন');
+    }
+
+    const manager = await prisma.manager.findUnique({
+      where: { userId },
+    });
+
+    if (manager) {
+      andConditions.push({
+        areas: {
+          some: {
+            areaId: manager.areaId,
+          },
+        },
+      });
+    }
   }
 
-  // 2. 🟢 Active/Deactivate Status (Corrected Logic)
-  if (active !== undefined && active !== null && active !== '') {
-    const isActive = active === 'true';
-    // If user wants active doctors, deactivate must be false
+  // ৩. লোকেশন ফিল্টার (ফিক্সড: slug এর মাধ্যমে ম্যাচিং)
+  if (district || area) {
     andConditions.push({
-      user: {
-        deactivate: !isActive,
+      areas: {
+        some: {
+          area: {
+            // জেলা স্লাগ দিয়ে ফিল্টার
+            district: district ? { slug: { equals: district } } : undefined,
+            // এরিয়া স্লাগ দিয়ে ফিল্টার
+            slug: area ? { equals: area } : undefined,
+          },
+        },
       },
     });
   }
 
-  // 3. ⭐ Rating Filter
+  // ৪. ডিপার্টমেন্ট ফিল্টার (ফিক্সড: slug এর মাধ্যমে ম্যাচিং)
+  if (department) {
+    andConditions.push({
+      department: {
+        slug: department, // name-এর বদলে slug ব্যবহার করা হয়েছে
+      },
+    });
+  }
+
+  // ৫. রেটিং ফিল্টার (আগের মতোই থাকবে)
   if (minRating) {
     const ratingNum = parseFloat(minRating);
     if (!isNaN(ratingNum)) {
@@ -99,28 +218,30 @@ const getDoctors = async (
     }
   }
 
-  // 4. 🚻 Gender Filter
+  // ৬. জেন্ডার ফিল্টার
   if (gender) {
     andConditions.push({ gender });
   }
 
-  // 5. 📍 Specific Filters (Department, District, etc.)
-  if (Object.keys(filterData).length > 0) {
-    const specificFilters = Object.entries(filterData)
-      .filter(([_, value]) => value !== undefined && value !== '')
-      .map(([key, value]) => ({
-        [key]: { equals: value, mode: 'insensitive' },
-      }));
-
-    if (specificFilters.length > 0) {
-      andConditions.push({ AND: specificFilters });
-    }
+  // ৭. স্ট্যাটাস ফিল্টার
+  if (deactivate !== undefined) {
+    const isDeactivated = deactivate === 'true';
+    andConditions.push({
+      user: { deactivate: isDeactivated },
+    });
   }
-
+  if (membership) {
+    andConditions.push({
+      memberships: {
+        some: {},
+      },
+    });
+  }
+  // ফাইনাল কন্ডিশন
   const whereCondition: Prisma.DoctorWhereInput =
     andConditions.length > 0 ? { AND: andConditions } : {};
 
-  // 6. 🚀 Database Query
+  // ৮. ডাটাবেজ কোয়েরি
   const [data, total] = await Promise.all([
     prisma.doctor.findMany({
       where: whereCondition,
@@ -136,44 +257,82 @@ const getDoctors = async (
 
   return {
     meta: { page, limit, total, totalPage },
-    data: data as IDoctorResponse[],
+    data: data as unknown as IDoctorResponse[],
   };
 };
-const getDoctorStats = async (): Promise<IDoctorStats> => {
-  const [activeCount, inactiveCount, departmentStats] = await Promise.all([
-    // Count based on the 'active' boolean in Doctor model
-    prisma.doctor.count({
-      where: { active: true },
-    }),
+const getAllDoctorForManager = async (userId: string): Promise<any[]> => {
+  const manager = await prisma.manager.findUnique({
+    where: { userId },
+    select: {
+      areaId: true,
+    },
+  });
 
-    // Count based on 'active' boolean being false
-    prisma.doctor.count({
-      where: { active: false },
-    }),
+  if (!manager?.areaId) {
+    throw new ApiError(403, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
+  }
 
-    // Grouping by department
-    prisma.doctor.groupBy({
-      by: ['department'],
-      _count: {
-        id: true,
+  const doctors = await prisma.doctorArea.findMany({
+    where: {
+      areaId: manager.areaId,
+    },
+    select: {
+      doctor: {
+        select: {
+          id: true,
+          user: {
+            select: {
+              name: true,
+              image: true,
+            },
+          },
+        },
       },
+    },
+  });
 
-      where: {
-        department: { not: '' },
-      },
-    }),
-  ]);
-
-  return {
-    total: activeCount + inactiveCount,
-    active: activeCount,
-    inactive: inactiveCount,
-    departments: departmentStats.map((d) => ({
-      name: d.department, // No 'as string' needed now as it's required in schema
-      count: d._count.id,
-    })),
-  };
+  // ✅ clean response
+  return doctors.map((d) => ({
+    id: d.doctor.id,
+    name: d.doctor.user?.name,
+    image: d.doctor.user?.image || null,
+  }));
 };
+// const getDoctorStats = async (): Promise<IDoctorStats> => {
+//   const [activeCount, inactiveCount, departmentStats] = await Promise.all([
+//     // Count based on the 'active' boolean in Doctor model
+//     prisma.doctor.count({
+//       where: { active: true },
+//     }),
+
+//     // Count based on 'active' boolean being false
+//     prisma.doctor.count({
+//       where: { active: false },
+//     }),
+
+//     // Grouping by department
+//     prisma.doctor.groupBy({
+//       by: ['department'],
+//       _count: {
+//         id: true,
+//       },
+
+//       where: {
+//         department: { not: '' },
+//       },
+//     }),
+//   ]);
+
+//   return {
+//     total: activeCount + inactiveCount,
+//     active: activeCount,
+//     inactive: inactiveCount,
+//     departments: departmentStats.map((d) => ({
+//       name: d.department, // No 'as string' needed now as it's required in schema
+//       count: d._count.id,
+//     })),
+//   };
+// };
 
 export const getDoctorById = async (
   identifier: string,
@@ -219,81 +378,89 @@ export const getDoctorById = async (
     membershipsCount: totalMemberships, // ফ্রন্টএন্ডে পেজিনেশন দেখানোর জন্য
   } as any;
 };
-const updateDoctor = async (
-  userId: string,
-  doctorData: UpdateDoctorInput,
-): Promise<IDoctorResponse | null> => {
-  if (!userId) {
+
+const updateDoctor = async (doctorId: string, payload: any): Promise<any> => {
+  // ১. আর্লি এক্সিট (Early Exit)
+  if (!doctorId) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'User ID is required');
   }
 
-  // 1. Verify existence
-  const existingDoctor = await prisma.doctor.findUnique({
-    where: { userId },
-  });
+  const { user, departmentId, ...restDoctorData } = payload;
 
-  if (!existingDoctor) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Doctor profile not found!');
+  const userUpdateData: any = {};
+  if (user) {
+    const fields = ['name', 'phoneNumber', 'image', 'deactivate'];
+    fields.forEach((field) => {
+      if (user[field] !== undefined) userUpdateData[field] = user[field];
+    });
+
+    if (user.password?.trim()) {
+      userUpdateData.password = await bcrypt.hash(user.password, 12);
+    }
   }
-
-  const { user, ...restDoctorData } = doctorData;
-
-  const userUpdateData = doctorData.user
-    ? {
-        name: doctorData.user.name,
-        phoneNumber: doctorData.user.phoneNumber,
-        image: doctorData.user.image,
-        password: doctorData.user.password
-          ? await bcrypt.hash(doctorData.user.password, 12)
-          : undefined,
-      }
-    : {};
-
-  // Clean undefined values so they don't overwrite DB with nothing
-  const finalUserUpdate = Object.fromEntries(
-    Object.entries(userUpdateData).filter(([_, v]) => v !== undefined),
-  );
 
   const updatedDoctor = await prisma.doctor.update({
-    where: { userId },
+    where: { id: doctorId },
     data: {
       ...restDoctorData,
-      user: Object.keys(finalUserUpdate).length > 0 ? { update: finalUserUpdate } : undefined,
+      // Department রিলেশন
+      ...(departmentId && {
+        department: { connect: { id: departmentId } },
+      }),
+      // ইউজার রিলেশন
+      ...(Object.keys(userUpdateData).length > 0 && {
+        user: { update: userUpdateData },
+      }),
     },
-    select: DOCTOR_SELECT,
-  });
-
-  return updatedDoctor as IDoctorResponse;
-};
-
-const deleteDoctor = async (userId: string): Promise<IDoctorResponse> => {
-  // 1️⃣ Check if doctor exists
-  const existingDoctor = await prisma.doctor.findUnique({
-    where: { userId },
-    select: { id: true, userId: true },
-  });
-
-  if (!existingDoctor) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Doctor not found');
-  }
-
-  // 2️⃣ Soft delete: update user.active to false
-  const doctor = await prisma.doctor.update({
-    where: { userId },
-    data: {
-      active: false,
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          phoneNumber: true,
+          image: true,
+          role: true,
+          deactivate: true,
+        },
+      },
+      department: true,
     },
-    select: DOCTOR_SELECT,
   });
 
-  return doctor as IDoctorResponse;
+  return updatedDoctor;
 };
+// const deleteDoctor = async (userId: string): Promise<IDoctorResponse> => {
+//   // 1️⃣ Check if doctor exists
+//   const existingDoctor = await prisma.doctor.findUnique({
+//     where: { id: userId },
+//     select: { id: true, userId: true },
+//   });
+
+//   if (!existingDoctor) {
+//     throw new ApiError(httpStatus.NOT_FOUND, 'Doctor not found');
+//   }
+
+//   // 2️⃣ Soft delete: update user.active to false
+//   const doctor = await prisma.doctor.update({
+//     where: { userId },
+//     data: {
+//       user: {
+
+//       },
+//     },
+//     select: DOCTOR_SELECT,
+//   });
+
+//   return doctor as IDoctorResponse;
+// };
 
 export const DoctorService = {
   createDoctor,
   getDoctors,
-  getDoctorStats,
+
   getDoctorById,
   updateDoctor,
-  deleteDoctor,
+  getAllDoctorForManager,
+  addDoctorToArea,
+  removeDoctorFromArea,
 };

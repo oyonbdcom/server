@@ -19,7 +19,6 @@ const getCurrentUser = async (userId: string): Promise<IUserResponse> => {
       image: true,
       role: true,
       deactivate: true,
-      lastLoginAt: true,
     },
   });
 
@@ -88,7 +87,6 @@ const getUsers = async (
       image: true,
       role: true,
       deactivate: true,
-      lastLoginAt: true,
     },
   });
 
@@ -114,7 +112,6 @@ const getUserById = async (id: string): Promise<IUserResponse> => {
 
       createdAt: true,
       updatedAt: true,
-      lastLoginAt: true,
     },
   });
 
@@ -144,7 +141,6 @@ const updateUserRole = async (id: string, role: UserRole): Promise<IUserResponse
       image: true,
       role: true,
       deactivate: true,
-      lastLoginAt: true,
     },
   });
 

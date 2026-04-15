@@ -37,7 +37,21 @@ const getUsers = catchAsync(async (req, res) => {
     data: result?.data || null,
   });
 });
+const getAllManagers = catchAsync(async (req, res) => {
+  const paginationOptions = pick(req.query, paginationFields);
 
+  const filter = pick(req.query, ['searchTerm', 'areaId']);
+
+  const result = await UserService.getAllManagers(filter, paginationOptions);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Managers retrieved successfully',
+    meta: result?.meta || null,
+    data: result?.data || null,
+  });
+});
 const getUserById = catchAsync(async (req, res) => {
   const { id } = req.params as { id: string };
   const user = await UserService.getUserById(id);
@@ -52,18 +66,24 @@ const getUserById = catchAsync(async (req, res) => {
 
 const updateUserRole = catchAsync(async (req, res) => {
   const { id } = req.params as { id: string };
-  const { role } = req.body;
 
-  const updatedUser = await UserService.updateUserRole(id, role);
+  // বডি থেকে role, assignedAreaId এবং deactivate সবগুলোকে রিসিভ করা হচ্ছে
+  const { role, assignedAreaId, deactivate } = req.body;
+
+  // সার্ভিসে পুরো অবজেক্টটি পাস করা হচ্ছে
+  const updatedUser = await UserService.updateUserRole(id, {
+    role,
+    assignedAreaId,
+    deactivate,
+  });
 
   sendResponse<IUserResponse>(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'User role updated successfully',
+    message: 'User information updated successfully',
     data: updatedUser,
   });
 });
-
 const deleteUser = catchAsync(async (req, res) => {
   const { id } = req.params as { id: string };
   await UserService.deleteUser(id);
@@ -82,4 +102,5 @@ export const UserController = {
   updateUserRole,
   deleteUser,
   getCurrentUser,
+  getAllManagers,
 };

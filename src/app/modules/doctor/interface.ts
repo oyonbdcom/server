@@ -1,32 +1,48 @@
 import { Gender } from '@prisma/client';
+import { IDoctorAreaResponse } from '../location/interface';
+import { IMembershipResponse } from '../membership/interface';
 import { IUserResponse } from '../user/interface';
-export interface IEducation {
-  degree: string;
-  institution: string;
-  year: number;
+
+export interface IDepartmentResponse {
+  id: string;
+  name: string;
+  slug: string;
 }
+
+export interface IDoctorMembership {
+  id: string;
+  organization: string;
+  position: string;
+}
+
 export interface IDoctorResponse {
   id: string;
   userId: string;
-  department: string | null;
-  specialization: string | null;
-  slug: string | null;
-  bio: string | null;
-  gender: Gender | null;
-  district: string | null;
-  city: string | null;
-  country: string | null;
+  slug: string;
+  specialization: string;
+  departmentId: string;
+
+  // Optional Fields from Schema
   website: string | null;
-  hospital: string | null;
   position: string | null;
-  active: boolean;
+  education: any;
+  hospital: string | null;
+  gender: Gender | null;
+  experience: number;
+
+  // Counters & Ratings
   averageRating: number;
   reviewsCount: number;
-  education: IEducation | any;
-  createdAt: Date;
-  updatedAt: Date;
+
+  // Timestamps
+  createdAt: Date | string;
+  updatedAt: Date | string;
+
+  // Relationships (Include logic অনুযায়ী আসবে)
   user: IUserResponse;
-  memberships?: IDoctorMembership[];
+  department?: IDepartmentResponse;
+  areas?: IDoctorAreaResponse[]; // DoctorArea[] রিলেশন
+  memberships?: IMembershipResponse[]; // আপনার প্রয়োজন অনুযায়ী Membership টাইপ যোগ করতে পারেন
 }
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'BLOCKED' | 'PENDING_APPROVAL';
 

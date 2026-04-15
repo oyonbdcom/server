@@ -7,13 +7,6 @@ export const PATIENT_SELECT = {
   gender: true,
   address: true,
   age: true,
-  phoneNumber: true,
-  bloodGroup: true,
-  district: true,
-  city: true,
-  country: true,
-  createdAt: true,
-  updatedAt: true,
   user: {
     select: {
       id: true,
@@ -21,21 +14,6 @@ export const PATIENT_SELECT = {
       phoneNumber: true,
       image: true,
       deactivate: true,
-      _count: {
-        select: { appointmentsAsPatient: true },
-      },
-      appointmentsAsPatient: {
-        orderBy: { appointmentDate: 'desc' },
-        take: 1,
-        select: {
-          id: true,
-          appointmentDate: true,
-          status: true,
-          doctor: { select: { name: true } },
-          clinic: { select: { name: true } },
-          _count: { select: { medicalRecords: true } },
-        },
-      },
     },
   },
 } satisfies Prisma.PatientSelect;

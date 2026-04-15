@@ -1,34 +1,35 @@
 import z from 'zod';
 
 import { IAppointmentResponse } from '../appointment/interface';
-import { IMembershipResponse } from '../membership/interface';
+import { IAreaResponse } from '../location/interface';
 import { IReviewResponse } from '../review/interface';
 import { IUserResponse } from '../user/interface';
 import { createClinicSchema, updateClinicSchema } from './zodValidation';
 
+export interface IDistrict {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface IClinicResponse {
   id: string;
   userId: string;
+  user: IUserResponse;
+  name: string;
   slug: string;
-  phoneNumber: string | null;
-  description: string | null;
-  openingHour: string | null;
-  // CHANGE THIS:
-  establishedYear: number | null;
-  address: string | null;
-  district: string | null;
-  city: string | null;
-  country: string | null;
-  active: boolean;
-  website: string | null;
+  address: string;
+  areaId: string;
+  area: IAreaResponse;
+
   averageRating: number;
   reviewsCount: number;
-  createdAt: Date;
-  updatedAt: Date;
-  user: IUserResponse;
-
-  memberships?: IMembershipResponse[];
+  createdAt: string;
+  updatedAt: string;
 }
+
 export type ICreateClinicRequest = z.infer<typeof createClinicSchema>['body'];
 
 export type IUpdateClinicRequest = z.infer<typeof updateClinicSchema>['body'];

@@ -6,7 +6,6 @@ import { IOptions, paginationCalculator } from '../../../helper/pagination';
 import { IGenericResponse } from '../../../interface/common';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
-import { createSlug } from '../../../utils/createSlug';
 import { CLINIC_SELECT, IClinicFilterRequest } from './constant';
 import {
   IClinicResponse,
@@ -15,21 +14,45 @@ import {
   IUpdateClinicRequest,
 } from './interface';
 
-const createClinic = async (clinicData: ICreateClinicRequest): Promise<IClinicResponse | null> => {
+const createClinic = async (
+  clinicData: ICreateClinicRequest,
+  userId: string,
+): Promise<IClinicResponse | null> => {
   const defaultPassword = 'Password@123';
 
-  // ১. স্ল্যাগ তৈরি করা (নাম থেকে)
-  if (!clinicData.user?.name) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'ক্লিনিকের নাম প্রদান করা বাধ্যতামূলক!');
+  // ১. নাম এবং ফোন নম্বর চেক করা
+  if (!clinicData.user?.name || !clinicData.user?.phoneNumber) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'ক্লিনিকের নাম এবং ফোন নম্বর প্রদান করা বাধ্যতামূলক!',
+    );
   }
-  const slug = createSlug(clinicData.user.name);
 
-  // ২. পাসওয়ার্ড হ্যাশিং
+  const managerProfile = await prisma.manager.findUnique({
+    where: { userId },
+    select: { areaId: true },
+  });
+
+  if (!managerProfile || !managerProfile.areaId) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'ম্যানেজারের এরিয়া তথ্য পাওয়া যায়নি!');
+  }
+
+  // ৩. পাসওয়ার্ড হ্যাশ করা
   const hashedPassword = await bcrypt.hash(clinicData.user?.password || defaultPassword, 10);
 
-  // ৩. ডাটাবেজে ক্লিনিক তৈরি
+  // ৪. ডাটাবেজে ক্লিনিক তৈরি (Transaction ব্যবহার করা নিরাপদ)
   const clinic = await prisma.clinic.create({
     data: {
+      name: clinicData.user.name,
+      slug: clinicData.slug,
+      address: clinicData.address,
+
+      area: {
+        connect: {
+          id: managerProfile.areaId,
+        },
+      },
+
       user: {
         create: {
           name: clinicData.user.name,
@@ -37,29 +60,21 @@ const createClinic = async (clinicData: ICreateClinicRequest): Promise<IClinicRe
           password: hashedPassword,
           role: UserRole.CLINIC,
           image: clinicData.user.image,
+          isDefaultPassword: !clinicData.user.password,
         },
       },
-      // স্ল্যাগ এখানে যুক্ত করা হলো
-      slug: slug,
-
-      phoneNumber: clinicData.phoneNumber,
-      active: clinicData?.active ?? false,
-      description: clinicData?.description,
-      openingHour: clinicData?.openingHour,
-      address: clinicData?.address,
-      establishedYear: clinicData?.establishedYear,
-      district: clinicData.district,
-      city: clinicData.city,
-      country: clinicData.country ?? 'Bangladesh',
     },
     select: CLINIC_SELECT,
   });
 
   if (!clinic) {
-    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'ক্লিনিক প্রোফাইল তৈরি করতে সমস্যা হয়েছে');
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'ক্লিনিক প্রোফাইল তৈরি করতে সমস্যা হয়েছে',
+    );
   }
 
-  return clinic;
+  return clinic as unknown as IClinicResponse;
 };
 
 const getClinics = async (
@@ -67,45 +82,56 @@ const getClinics = async (
   options: IOptions,
 ): Promise<IGenericResponse<IClinicResponse[]>> => {
   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
-  const { searchTerm, active, minRating, ...filterData } = filter;
+
+  // ১. ডিস্ট্রিক্ট এবং এরিয়া ডিস্ট্রাকচার করুন
+  const { searchTerm, deactivate, district, area } = filter;
 
   const andConditions: Prisma.ClinicWhereInput[] = [];
 
+  // সার্চ টার্ম লজিক
   if (searchTerm) {
     andConditions.push({
       OR: [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
         { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { city: { contains: searchTerm, mode: 'insensitive' } },
-        { district: { contains: searchTerm, mode: 'insensitive' } },
+        { user: { phoneNumber: { contains: searchTerm, mode: 'insensitive' } } },
       ],
     });
   }
 
-  if (active !== undefined && active !== null && active !== '') {
-    const isActive = active === 'true';
+  // স্ট্যাটাস ফিল্টার
+  if (deactivate !== undefined) {
+    const isDeactivated = deactivate === 'true';
     andConditions.push({
-      active: isActive,
+      user: {
+        deactivate: isDeactivated,
+      },
     });
   }
 
-  if (minRating) {
-    const ratingNum = parseFloat(minRating);
-    if (!isNaN(ratingNum)) {
-      andConditions.push({ averageRating: { gte: ratingNum } });
-    }
-  }
-
-  if (Object.keys(filterData).length > 0) {
+  // ২. ডিস্ট্রিক্ট ফিল্টার (Relation: clinic -> area -> district)
+  if (district) {
     andConditions.push({
-      AND: Object.entries(filterData).map(([key, value]) => ({
-        [key]: { equals: value, mode: 'insensitive' },
-      })),
+      area: {
+        district: {
+          slug: district, // অথবা name: district
+        },
+      },
     });
   }
 
-  const whereCondition: Prisma.ClinicWhereInput =
-    andConditions.length > 0 ? { AND: andConditions } : {};
+  // ৩. এরিয়া ফিল্টার (Relation: clinic -> area)
+  if (area) {
+    andConditions.push({
+      area: {
+        slug: area, // অথবা name: area
+      },
+    });
+  }
 
+  const whereCondition: Prisma.ClinicWhereInput = { AND: andConditions };
+
+  // ডাটাবেজ কোয়েরি
   const [data, total] = await Promise.all([
     prisma.clinic.findMany({
       where: whereCondition,
@@ -116,23 +142,23 @@ const getClinics = async (
     }),
     prisma.clinic.count({ where: whereCondition }),
   ]);
-
+  const totalPage = Math.ceil(total / limit);
   return {
-    meta: { page, limit, total },
-    data,
+    meta: { page, limit, total, totalPage },
+    data: data as unknown as IClinicResponse[],
   };
 };
 const getClinicStats = async (): Promise<IClinicStats> => {
   const [activeCount, inactiveCount] = await Promise.all([
     // Count based on the 'active' boolean in Doctor model
     prisma.clinic.count({
-      where: { active: true },
+      where: { user: { deactivate: false } },
+    }),
+    prisma.clinic.count({
+      where: { user: { deactivate: true } },
     }),
 
     // Count based on 'active' boolean being false
-    prisma.clinic.count({
-      where: { active: false },
-    }),
   ]);
 
   return {
@@ -141,127 +167,205 @@ const getClinicStats = async (): Promise<IClinicStats> => {
     inactive: inactiveCount,
   };
 };
-export const getClinicById = async (identifier: string): Promise<IClinicResponse> => {
-  if (!identifier) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'আইডি বা স্ল্যাগ প্রদান করা বাধ্যতামূলক');
-  }
 
-  // findFirst ব্যবহার করা হয়েছে যাতে OR কন্ডিশন কাজ করে
-  const clinic = await prisma.clinic.findFirst({
-    where: {
-      OR: [{ userId: identifier }, { slug: identifier }],
-    },
-    select: CLINIC_SELECT,
+const getClinicsForManager = async (
+  filter: IClinicFilterRequest,
+  options: IOptions,
+  userId: string,
+): Promise<IGenericResponse<IClinicResponse[]>> => {
+  const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
+  const { searchTerm, deactivate, minRating } = filter;
+
+  const andConditions: Prisma.ClinicWhereInput[] = [];
+
+  const managerProfile = await prisma.manager.findUnique({
+    where: { userId: userId },
+    select: { areaId: true },
   });
 
-  if (!clinic) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'ক্লিনিক খুঁজে পাওয়া যায়নি!');
+  if (!managerProfile || !managerProfile.areaId) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
   }
 
-  return clinic as IClinicResponse;
+  andConditions.push({
+    areaId: managerProfile.areaId,
+  });
+
+  // ৩. সার্চ টার্ম (নাম বা ফোন নম্বর দিয়ে খোঁজা)
+  if (searchTerm) {
+    andConditions.push({
+      OR: [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { phoneNumber: { contains: searchTerm, mode: 'insensitive' } } },
+      ],
+    });
+  }
+
+  // ৪. স্ট্যাটাস ফিল্টার
+  if (deactivate !== undefined) {
+    const isDeactivated = deactivate === 'true';
+    andConditions.push({
+      user: {
+        deactivate: isDeactivated,
+      },
+    });
+  }
+
+  const whereCondition: Prisma.ClinicWhereInput = { AND: andConditions };
+
+  // ডাটাবেজ কোয়েরি
+  const [data, total] = await Promise.all([
+    prisma.clinic.findMany({
+      where: whereCondition,
+      skip,
+      take: limit,
+      orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
+      select: CLINIC_SELECT,
+    }),
+    prisma.clinic.count({ where: whereCondition }),
+  ]);
+  const totalPage = Math.ceil(total / limit);
+  return {
+    meta: { page, limit, total, totalPage },
+    data: data as unknown as IClinicResponse[],
+  };
+};
+const getAllClinicsForManager = async (userId: string): Promise<IClinicResponse[]> => {
+  const manager = await prisma.manager.findUnique({
+    where: { userId },
+    select: {
+      areaId: true,
+    },
+  });
+
+  if (!manager?.areaId) {
+    throw new ApiError(403, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
+  }
+
+  const clinics = await prisma.clinic.findMany({
+    where: {
+      areaId: manager.areaId,
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      user: {
+        select: {
+          image: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  // flatten response (optional but clean for frontend)
+  return clinics.map((c) => ({
+    id: c.id,
+    name: c.name,
+    image: c.user?.image || null,
+  })) as any;
 };
 const updateClinic = async (
-  userId: string,
+  clinicId: string, // এটি মূলত Clinic টেবিলের ID
   clinicData: IUpdateClinicRequest,
 ): Promise<IClinicResponse> => {
-  // ১. ইউজার আছে কি না আগে চেক করে নিন এবং বর্তমান নাম সংগ্রহ করুন
-  const existingUser = await prisma.user.findUnique({
-    where: { id: userId },
-    include: { clinic: true },
+  // ১. ক্লিনিক প্রোফাইল আছে কি না চেক করা (User সহ)
+  const existingClinic = await prisma.clinic.findUnique({
+    where: { id: clinicId },
+    include: { user: true },
   });
 
-  if (!existingUser) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'ব্যবহারকারী খুঁজে পাওয়া যায়নি!');
+  if (!existingClinic) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'ক্লিনিক খুঁজে পাওয়া যায়নি!');
   }
 
-  // ২. স্ল্যাগ হ্যান্ডেলিং লজিক
-  // যদি নতুন নাম পাঠানো হয় তবে সেটি থেকে স্ল্যাগ তৈরি হবে,
-  // নতুবা আগের নাম বা আগের স্ল্যাগটিই থাকবে।
-  const newName = clinicData.user?.name;
-  const currentSlug = existingUser.clinic?.slug;
-  const slug = newName ? createSlug(newName) : currentSlug;
-
-  // ৩. ইউজার আপডেট ডাটা তৈরি (পাসওয়ার্ড হ্যাশিং সহ)
+  // ২. ইউজার আপডেট ডাটা তৈরি
   const userData: any = {};
   if (clinicData.user) {
+    if (clinicData.user.name) userData.name = clinicData.user.name;
+    if (clinicData.user.phoneNumber) userData.phoneNumber = clinicData.user.phoneNumber;
+    if (clinicData.user.image) userData.image = clinicData.user.image;
+    if (clinicData.user.deactivate !== undefined) userData.deactivate = clinicData.user.deactivate;
+
     if (clinicData.user.password) {
       userData.password = await bcrypt.hash(clinicData.user.password, 10);
     }
-    if (clinicData.user.name) userData.name = clinicData.user.name;
-    if (clinicData.user.deactivate !== undefined) userData.deactivate = clinicData.user.deactivate;
-    if (clinicData.user.phoneNumber) userData.phoneNumber = clinicData.user.phoneNumber;
-    if (clinicData.user.image) userData.image = clinicData.user.image;
-    if (clinicData.user.isPhoneVerified !== undefined)
-      userData.isPhoneVerified = clinicData.user.isPhoneVerified;
   }
 
-  // ৪. Upsert অপারেশন (Slug সহ)
-  const clinic = await prisma.clinic.upsert({
-    where: { userId },
-    create: {
-      userId,
-      address: clinicData.address ?? '',
-      district: clinicData.district ?? '',
-      city: clinicData.city ?? '',
-      country: clinicData.country ?? 'Bangladesh',
-      phoneNumber: clinicData.phoneNumber ?? '',
-      establishedYear: clinicData.establishedYear,
-      slug: slug || createSlug(existingUser.name), // নতুন স্ল্যাগ অথবা আগের নাম থেকে তৈরি স্ল্যাগ
-      description: clinicData.description,
-      active: clinicData?.active ?? false,
-      openingHour: clinicData.openingHour,
-      website: clinicData.website,
-    },
-    update: {
+  // ৩. আপডেট অপারেশন
+  const updatedClinic = await prisma.clinic.update({
+    where: { id: clinicId },
+    data: {
+      name: clinicData.user?.name,
+      slug: clinicData.slug,
       address: clinicData.address,
-      district: clinicData.district,
-      city: clinicData.city,
-      active: clinicData?.active,
-      country: clinicData.country,
-      website: clinicData.website,
-      phoneNumber: clinicData.phoneNumber,
-      description: clinicData.description,
-      openingHour: clinicData.openingHour,
-      establishedYear: clinicData.establishedYear,
-      slug: slug, // এখানে আপডেট করা স্ল্যাগ বসবে
+
+      // নেস্টেড ইউজার আপডেট
       user: {
-        update: userData, // আলাদা করে নিচে আপডেট না করে এখানেই করা ভালো
+        update: userData,
       },
     },
     select: CLINIC_SELECT,
   });
 
-  return clinic;
+  return updatedClinic as unknown as IClinicResponse;
 };
-
-const deleteClinic = async (userId: string): Promise<IClinicResponse> => {
-  // 1️⃣ Check if Clinic exists
-  const existingClinic = await prisma.clinic.findUnique({
-    where: { userId },
-    select: { id: true, userId: true },
+const deleteClinic = async (id: string, user: { id: string; role: string }): Promise<any> => {
+  // ১. ক্লিনিক খুঁজে বের করা (area সহ)
+  const clinicData = await prisma.clinic.findUnique({
+    where: { id },
+    select: {
+      userId: true,
+      areaId: true,
+    },
   });
 
-  if (!existingClinic) {
+  if (!clinicData) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Clinic not found');
   }
 
-  // 2️⃣ Soft delete: update user.active to false
-  const clinic = await prisma.clinic.update({
-    where: { userId },
-    data: {
-      active: false,
-    },
-    select: CLINIC_SELECT,
-  });
+  // ২. যদি ADMIN হয় → সরাসরি delete
+  if (user.role === 'ADMIN') {
+    return await prisma.user.delete({
+      where: { id: clinicData.userId },
+    });
+  }
 
-  return clinic;
+  // ৩. যদি MANAGER হয় → area match check
+  if (user.role === 'MANAGER') {
+    const manager = await prisma.manager.findUnique({
+      where: { userId: user.id },
+      select: { areaId: true },
+    });
+
+    if (!manager?.areaId) {
+      throw new ApiError(httpStatus.FORBIDDEN, 'আপনার কোনো এরিয়া নেই');
+    }
+
+    // ❌ অন্য area's clinic delete করতে পারবে না
+    if (manager.areaId !== clinicData.areaId) {
+      throw new ApiError(httpStatus.FORBIDDEN, 'আপনি এই ক্লিনিক ডিলিট করতে পারবেন না');
+    }
+
+    return await prisma.user.delete({
+      where: { id: clinicData.userId },
+    });
+  }
+
+  // ৪. অন্য role হলে block
+  throw new ApiError(httpStatus.FORBIDDEN, 'আপনার এই কাজের অনুমতি নেই');
 };
 
 export const ClinicService = {
   createClinic,
   getClinics,
+  getAllClinicsForManager,
   getClinicStats,
-  getClinicById,
   updateClinic,
+  getClinicsForManager,
   deleteClinic,
 };

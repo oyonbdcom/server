@@ -1,47 +1,64 @@
+import { Gender } from '@prisma/client';
 import { z } from 'zod';
-import { phoneRegex, userRoleEnum } from '../../../constants/constant';
+import { phoneRegex } from '../../../constants/constant';
+import { banglaRegex } from '../../../utils/common';
 
 export const doctorSchema = z.object({
-  department: z.string().min(1, 'ডিপার্টমেন্ট নির্বাচন করা বাধ্যতামূলক'),
+  departmentId: z.string().min(1, 'ডিপার্টমেন্ট নির্বাচন করা বাধ্যতামূলক'),
+
   specialization: z
     .string()
     .min(1, 'স্পেশালাইজেশন দিন')
-    .regex(/^[ঀ-৿\s.,।/()/-]+$/, 'স্পেশালাইজেশন অবশ্যই বাংলায় হতে হবে'),
-  bio: z.string().max(1000, '১০০০ অক্ষরের বেশি লিখা যাবে না').optional(),
-  gender: z
-    .preprocess((val) => (val === '' ? undefined : val), z.enum(['MALE', 'FEMALE']))
-    .optional(),
-  website: z.string().url('সঠিক ইউআরএল দিন').optional().or(z.literal('')),
-  position: z
+    .regex(banglaRegex, 'স্পেশালাইজেশন অবশ্যই বাংলায় হতে হবে'),
+
+  slug: z
     .string()
-    .regex(/^[ঀ-৿\s.,।/()/-]+$/, 'পদবী  অবশ্যই বাংলায় হতে হবে')
-    .optional(),
-  district: z.string().min(1, 'জেলা নির্বাচন করুন').optional(),
-  active: z.boolean().default(true),
-  city: z.string().optional(),
-  degree: z
-    .string()
-    .min(1, 'ডিগ্রি প্রদান করুন')
-    .regex(/^[ঀ-৿\s.,।/()/-]+$/, 'ডিগ্রি অবশ্যই বাংলায় হতে হবে'),
+    .min(3, 'স্লাগ অন্তত ৩ অক্ষরের হবে')
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'স্লাগ ছোট হাতের ইংরেজি এবং ড্যাশ হতে হবে')
+    .toLowerCase() // ইনপুট যাই আসুক, এটি ডাটাবেজে পাঠানোর আগে lowercase করে ফেলবে
+    .trim(),
+
+  gender: z.nativeEnum(Gender).default(Gender.MALE),
+
+  experience: z.coerce.number().min(0, 'অভিজ্ঞতা ০ বা তার বেশি হতে হবে'),
+
   hospital: z
     .string()
-    .min(1, 'হাসপাতালের নাম দিন')
-    .regex(/^[ঀ-৿\s.,।/()/-]+$/, 'হাসপাতালের নাম অবশ্যই বাংলায় হতে হবে'),
-  country: z.string().default('Bangladesh'),
+    .min(1, 'হসপিটালের নাম দিন')
+    .regex(banglaRegex, 'হসপিটালের নাম অবশ্যই বাংলায় হতে হবে'),
+
+  position: z
+    .string()
+    .regex(banglaRegex, 'পদবী অবশ্যই বাংলায় হতে হবে')
+    .optional()
+    .or(z.literal('')),
+
+  website: z
+    .string()
+    .trim()
+    .nullable()
+    .transform((val) => (val === '' ? undefined : val))
+    .refine((val) => !val || /^https?:\/\/.+/.test(val), 'সঠিক ইউআরএল (URL) দিন'),
+
+  active: z.boolean().default(true),
+
+  // --- Nested User Fields ---
   user: z.object({
-    name: z
-      .string()
-      .min(1, 'নাম প্রদান করুন')
-      .regex(/^[ঀ-৿\s.,।/()/-]+$/, 'নাম অবশ্যই বাংলায় হতে হবে'),
+    name: z.string().min(1, 'নাম প্রদান করুন').regex(banglaRegex, 'নাম অবশ্যই বাংলায় হতে হবে'),
+
     phoneNumber: z
       .string()
-      .min(1, 'মোবাইল নম্বর দেওয়া আবশ্যক')
+      .min(1, 'মোবাইল নম্বর দেওয়া আবশ্যক')
       .regex(phoneRegex, 'সঠিক মোবাইল নম্বর প্রদান করুন'),
-    password: z.string().min(8, 'পাসওয়ার্ড অন্তত ৮ অক্ষরের হতে হবে'),
-    role: userRoleEnum,
-    active: z.boolean().default(true),
 
-    image: z.string().optional(),
+    password: z.string().min(8, 'পাসওয়ার্ড অন্তত ৮ অক্ষরের হতে হবে'),
+
+    image: z.string().optional().default('null'),
+
+    role: z.string().default('DOCTOR'),
+
+    isPhoneVerified: z.boolean().optional().default(false),
+    deactivate: z.boolean().optional().default(false),
   }),
 });
 export const createDoctorSchema = z.object({
@@ -49,7 +66,25 @@ export const createDoctorSchema = z.object({
 });
 
 export const updateDoctorSchema = z.object({
-  body: doctorSchema.partial(),
+  body: doctorSchema.partial().extend({
+    user: z
+      .object({
+        name: z.string().regex(banglaRegex, 'নাম অবশ্যই বাংলায় হতে হবে').optional(),
+        phoneNumber: z.string().regex(phoneRegex, 'সঠিক মোবাইল নম্বর প্রদান করুন').optional(),
+        // পাসওয়ার্ডকে এখানে স্পেশালভাবে হ্যান্ডেল করা হয়েছে
+        password: z
+          .string()
+          .optional()
+          .or(z.literal(''))
+          .refine((val) => !val || val.length >= 8, {
+            message: 'পাসওয়ার্ড অন্তত ৮ অক্ষরের হতে হবে',
+          }),
+        image: z.string().optional().nullable(),
+        deactivate: z.boolean().optional(),
+      })
+      .partial()
+      .optional(), // ইউজার অবজেক্টকেও পারশিয়াল করা হয়েছে
+  }),
 });
 
 export const DoctorZodValidation = {

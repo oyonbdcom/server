@@ -1,6 +1,6 @@
+import { UserRole } from '@prisma/client';
 import express from 'express';
 import { protect, protectOptional, restrictTo } from '../../../middlewares/authMiddleware';
-import { otpLimiter } from '../../../middlewares/rateMiddleware';
 import { zodValidate } from '../../../middlewares/zodValidation';
 import { AppointmentsController } from './controllers';
 import { AppointmentZodValidation } from './zodValidation';
@@ -8,7 +8,6 @@ import { AppointmentZodValidation } from './zodValidation';
 const router = express.Router();
 
 // User routes
-router.post('/send-otp', otpLimiter, AppointmentsController.sendBookingOtp);
 
 router.post(
   '/',
@@ -22,15 +21,20 @@ router.post(
   zodValidate(AppointmentZodValidation.CreateAppointmentSchema),
   AppointmentsController.createAppointmentForAdmin,
 );
-router.post(
-  '/logged',
+router.get(
+  '/manager-appointments',
   protect,
-  zodValidate(AppointmentZodValidation.CreateAppointmentSchema),
-  AppointmentsController.createAppointmentForRegisteredUser,
+  restrictTo(UserRole.MANAGER),
+  AppointmentsController.getManagerAreaAppointments,
 );
 
 // Admin routes
-router.get('/', protect, restrictTo('CLINIC', 'PATIENT'), AppointmentsController.getMyAppointments);
+router.get(
+  '/',
+  protect,
+  restrictTo('CLINIC', 'ADMIN', 'PATIENT'),
+  AppointmentsController.getMyAppointments,
+);
 router.get('/export', protect, AppointmentsController.exportDoctorDailyPdf);
 router.get(
   '/:aptId',
@@ -41,7 +45,7 @@ router.get(
 router.patch(
   '/:aptId',
   protect,
-  restrictTo('ADMIN', 'CLINIC'),
+  restrictTo('ADMIN', 'CLINIC', 'MANAGER'),
   zodValidate(AppointmentZodValidation.UpdateAppointmentSchema),
   AppointmentsController.updateAppointment,
 );

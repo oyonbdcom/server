@@ -19,6 +19,7 @@ export const appointmentPopulate = {
       image: true,
 
       phoneNumber: true,
+      patient: { select: { gender: true, age: true } },
     },
   },
   clinic: {
@@ -26,7 +27,7 @@ export const appointmentPopulate = {
       id: true,
       name: true,
       image: true,
-      clinic: { select: { address: true, area: true } }, // Profile info
+      clinic: { select: { address: true, area: { select: { name: true } } } }, // Profile info
     },
   },
 
@@ -45,11 +46,4 @@ export const generateTokens = (user: IUserResponse) => {
     refreshToken: jwtTokenHelper.refreshToken(payload),
   };
 };
-export const AppointmentsFilterableFields = [
-  'status',
-  'date',
-  'district',
-  'area',
-  'doctorId',
-  'clinicId',
-];
+export const AppointmentsFilterableFields = ['status', 'date', 'doctorId'];

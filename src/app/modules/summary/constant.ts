@@ -45,11 +45,4 @@ export const generateTokens = (user: IUserResponse) => {
     refreshToken: jwtTokenHelper.refreshToken(payload),
   };
 };
-export const AppointmentsFilterableFields = [
-  'status',
-  'date',
-  'district',
-  'area',
-  'doctorId',
-  'clinicId',
-];
+export const AppointmentsFilterableFields = ['status', 'date', 'doctorId'];

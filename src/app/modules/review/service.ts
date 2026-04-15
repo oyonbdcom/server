@@ -1,25 +1,21 @@
-import { Prisma, ReviewStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import httpStatus from 'http-status';
 import { JwtPayload } from 'jsonwebtoken';
 import { IOptions, paginationCalculator } from '../../../helper/pagination';
 import { IGenericResponse } from '../../../interface/common';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
-import { recallRating } from '../replay/utils';
-import {
-  CreateReviewInput,
-  IReviewResponse,
-  IReviewStatsResponse,
-  UpdateReviewInput,
-} from './interface';
+
+import { CreateReviewInput, IReviewResponse, UpdateReviewInput } from './interface';
+import { recallRating } from './utils copy';
 
 const createReview = async (
   userId: string,
-  payload: CreateReviewInput,
+  payload: CreateReviewInput, // নিশ্চিত করুন এখানে doctorId আছে
 ): Promise<IReviewResponse | undefined> => {
-  const { targetId, targetType } = payload;
+  const { doctorId, rating, comment } = payload;
 
-  // 1. IDENTITY CHECK: Find the user writing the review
+  // 1. IDENTITY CHECK: রিভিউ দাতা ইউজারকে খুঁজে বের করা
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, role: true },
@@ -29,7 +25,7 @@ const createReview = async (
     throw new ApiError(httpStatus.NOT_FOUND, 'User not found.');
   }
 
-  // Security: Only Patients can write reviews
+  // Security: শুধুমাত্র PATIENT রা রিভিউ দিতে পারবে
   if (user.role !== 'PATIENT') {
     throw new ApiError(
       httpStatus.FORBIDDEN,
@@ -37,12 +33,12 @@ const createReview = async (
     );
   }
 
-  // 2. DUPLICATE CHECK: Use the unique constraint [reviewerId, targetId]
+  // 2. DUPLICATE CHECK: স্কিমার @@unique([reviewerId, doctorId]) অনুযায়ী চেক
   const existingReview = await prisma.review.findUnique({
     where: {
-      reviewerId_targetId: {
+      reviewerId_doctorId: {
         reviewerId: user.id,
-        targetId: targetId,
+        doctorId: doctorId,
       },
     },
   });
@@ -50,58 +46,49 @@ const createReview = async (
   if (existingReview) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
-      'Duplicate Review: You have already submitted a review for this profile.',
+      'Duplicate Review: You have already submitted a review for this doctor.',
     );
   }
 
-  // 3. MAP DATA: Simplified for User-to-User relation
-  // We no longer need to conditionally connect to 'doctor' or 'clinic' models inside the Review
-  const reviewData: Prisma.ReviewCreateInput = {
-    rating: payload.rating,
-    comment: payload.comment,
-    targetType: payload.targetType,
-    status: 'APPROVED',
-    reviewer: {
-      connect: { id: user.id },
-    },
-    target: {
-      connect: { id: targetId },
-    },
-  };
-
-  // 4. EXECUTE TRANSACTION
+  // 3. EXECUTE TRANSACTION
   const result = await prisma.$transaction(async (tx) => {
     const newReview = await tx.review.create({
-      data: reviewData,
-      select: {
-        id: true,
-        rating: true,
-        comment: true,
-        reviewerId: true,
-        targetId: true,
-        targetType: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
+      data: {
+        rating,
+        comment,
+        status: 'APPROVED', // বা আপনার ডিফল্ট স্ট্যাটাস
+        reviewer: {
+          connect: { id: user.id },
+        },
+        doctor: {
+          connect: { id: doctorId }, // সরাসরি Doctor মডেলের সাথে কানেক্ট
+        },
+      },
+      include: {
         reviewer: {
           select: {
             name: true,
             image: true,
-            role: true,
             patient: {
               select: {
                 gender: true,
-                city: true,
               },
             },
           },
         },
-        target: { select: { name: true, image: true } },
+        doctor: {
+          select: {
+            user: {
+              select: { name: true },
+            },
+          },
+        },
       },
     });
 
-    // Recalculate average rating for the Doctor or Clinic
-    await recallRating(targetId, targetType, tx);
+    // ৪. রেটিং আপডেট (শুধুমাত্র ডাক্তাররের জন্য)
+    // যেহেতু এখন শুধু ডাক্তার, তাই targetType পাঠানোর প্রয়োজন নেই যদি আপনার ফাংশনটি আপডেট করেন
+    await recallRating(doctorId, tx);
 
     return newReview;
   });
@@ -119,7 +106,7 @@ const replyToReview = async (reviewId: string, userId: string, content: string) 
           role: true,
         },
       },
-      reviewReply: true,
+      reply: true,
     },
   });
 
@@ -129,14 +116,6 @@ const replyToReview = async (reviewId: string, userId: string, content: string) 
 
   // 2. Security: Check if user owns the Doctor or Clinic profile being reviewed
   // We compare the userId from the JWT with the userId associated with the Doctor/Clinic
-  const isOwner = review.targetId === userId;
-
-  if (!isOwner) {
-    throw new ApiError(
-      httpStatus.FORBIDDEN,
-      'Unauthorized: You can only reply to reviews on your own profile.',
-    );
-  }
 
   // 3. Upsert Logic: If reply exists, update it; otherwise, create it.
   // This is better for UX than throwing an error on "Duplicate Reply"
@@ -144,7 +123,6 @@ const replyToReview = async (reviewId: string, userId: string, content: string) 
     where: { reviewId },
     update: {
       content,
-      updatedAt: new Date(),
     },
     create: {
       content,
@@ -156,96 +134,96 @@ const replyToReview = async (reviewId: string, userId: string, content: string) 
   return result;
 };
 
-const getAllReviews = async (
-  user: JwtPayload,
-  filter: {
-    searchTerm?: string;
-    rating?: string | number;
-    targetType?: 'DOCTOR' | 'CLINIC';
-    status?: ReviewStatus;
-  },
-  options: IOptions,
-): Promise<IGenericResponse<IReviewResponse[]>> => {
-  const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
-  const { searchTerm, rating, targetType, status } = filter;
+// const getAllReviews = async (
+//   user: JwtPayload,
+//   filter: {
+//     searchTerm?: string;
+//     rating?: string | number;
+//     targetType?: 'DOCTOR' | 'CLINIC';
+//     status?: ReviewStatus;
+//   },
+//   options: IOptions,
+// ): Promise<IGenericResponse<IReviewResponse[]>> => {
+//   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
+//   const { searchTerm, rating, targetType, status } = filter;
 
-  const andConditions: Prisma.ReviewWhereInput[] = [];
+//   const andConditions: Prisma.ReviewWhereInput[] = [];
 
-  // --- 🛡️ ROLE-BASED RESTRICTION ---
-  if (user.role === 'ADMIN') {
-    // Admin can see everything, but if they chose a targetType filter, apply it
-    if (targetType) {
-      andConditions.push({ targetType });
-    }
-  } else if (user.role === 'DOCTOR' || user.role === 'CLINIC') {
-    // Doctors and Clinics are LOCKED to their own reviews
-    // We ignore the targetType filter from the user and force their own role/id
-    andConditions.push({
-      targetId: user.id,
-      targetType: user.role as 'DOCTOR' | 'CLINIC',
-    });
-  } else {
-    // If a Patient or other role tries to access this, return empty or throw error
-    throw new ApiError(httpStatus.FORBIDDEN, "You don't have access to these reviews");
-  }
+//   // --- 🛡️ ROLE-BASED RESTRICTION ---
+//   if (user.role === 'ADMIN') {
+//     // Admin can see everything, but if they chose a targetType filter, apply it
+//     if (targetType) {
+//       andConditions.push({ targetType });
+//     }
+//   } else if (user.role === 'DOCTOR' || user.role === 'CLINIC') {
+//     // Doctors and Clinics are LOCKED to their own reviews
+//     // We ignore the targetType filter from the user and force their own role/id
+//     andConditions.push({
+//       targetId: user.id,
+//       targetType: user.role as 'DOCTOR' | 'CLINIC',
+//     });
+//   } else {
+//     // If a Patient or other role tries to access this, return empty or throw error
+//     throw new ApiError(httpStatus.FORBIDDEN, "You don't have access to these reviews");
+//   }
 
-  // --- 🔍 REMAINING FILTERS ---
-  if (rating && rating !== 'all') {
-    andConditions.push({ rating: Number(rating) });
-  }
+//   // --- 🔍 REMAINING FILTERS ---
+//   if (rating && rating !== 'all') {
+//     andConditions.push({ rating: Number(rating) });
+//   }
 
-  if (status) {
-    andConditions.push({ status: status as ReviewStatus });
-  }
+//   if (status) {
+//     andConditions.push({ status: status as ReviewStatus });
+//   }
 
-  if (searchTerm) {
-    andConditions.push({
-      OR: [
-        { comment: { contains: searchTerm, mode: 'insensitive' } },
-        { reviewer: { name: { contains: searchTerm, mode: 'insensitive' } } },
-      ],
-    });
-  }
+//   if (searchTerm) {
+//     andConditions.push({
+//       OR: [
+//         { comment: { contains: searchTerm, mode: 'insensitive' } },
+//         { reviewer: { name: { contains: searchTerm, mode: 'insensitive' } } },
+//       ],
+//     });
+//   }
 
-  const whereCondition: Prisma.ReviewWhereInput =
-    andConditions.length > 0 ? { AND: andConditions } : {};
+//   const whereCondition: Prisma.ReviewWhereInput =
+//     andConditions.length > 0 ? { AND: andConditions } : {};
 
-  // --- 📊 DATA FETCHING ---
-  const [reviews, total] = await Promise.all([
-    prisma.review.findMany({
-      where: whereCondition,
-      skip,
-      take: limit,
-      orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
-      select: {
-        id: true,
-        rating: true,
-        comment: true,
-        targetType: true,
-        createdAt: true,
-        status: true,
-        reviewer: {
-          select: {
-            name: true,
-            image: true,
-            id: true,
-          },
-        },
-        target: { select: { name: true, image: true } },
-        reviewReply: true,
-      },
-    }),
-    prisma.review.count({ where: whereCondition }),
-  ]);
+//   // --- 📊 DATA FETCHING ---
+//   const [reviews, total] = await Promise.all([
+//     prisma.review.findMany({
+//       where: whereCondition,
+//       skip,
+//       take: limit,
+//       orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
+//       select: {
+//         id: true,
+//         rating: true,
+//         comment: true,
+//         targetType: true,
+//         createdAt: true,
+//         status: true,
+//         reviewer: {
+//           select: {
+//             name: true,
+//             image: true,
+//             id: true,
+//           },
+//         },
+//         target: { select: { name: true, image: true } },
+//       },
+//     }),
+//     prisma.review.count({ where: whereCondition }),
+//   ]);
+//   const totalPage = Math.ceil(total / limit);
 
-  return {
-    meta: { page, limit, total },
-    data: reviews as unknown as IReviewResponse[],
-  };
-};
+//   return {
+//     meta: { page, limit, total, totalPage },
+//     data: reviews as unknown as IReviewResponse[],
+//   };
+// };
 const getSingleTargetReviews = async (
-  targetId: string,
-  targetType: 'DOCTOR' | 'CLINIC',
+  doctorId: string,
+
   // 1. Add filter parameters to the signature
   filter: {
     searchTerm?: string;
@@ -259,8 +237,8 @@ const getSingleTargetReviews = async (
 
   // 2. Build dynamic AND conditions
   const andConditions: Prisma.ReviewWhereInput[] = [
-    { targetId },
-    { targetType },
+    { doctorId },
+
     // Default to APPROVED if no status filter is provided
     { status: (status as any) || 'APPROVED' },
   ];
@@ -301,7 +279,7 @@ const getSingleTargetReviews = async (
             id: true,
           },
         },
-        reviewReply: true,
+        reply: true,
       },
     }),
     prisma.review.count({ where: whereCondition }),
@@ -312,128 +290,159 @@ const getSingleTargetReviews = async (
     data: reviews as unknown as IReviewResponse[],
   };
 };
-const getReviewStats = async (
-  user: JwtPayload,
+const getReviewsByManagerArea = async (
+  managerUserId: string,
   filter: {
     searchTerm?: string;
+    departmentSlug?: string;
+    doctorId?: string;
     rating?: string | number;
-    targetType?: 'DOCTOR' | 'CLINIC';
-    status?: ReviewStatus;
+    status?: string;
   },
-): Promise<IReviewStatsResponse> => {
-  const { rating, targetType, status } = filter;
-  const andConditions: Prisma.ReviewWhereInput[] = [];
+  options: IOptions,
+) => {
+  const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
+  const { searchTerm, departmentSlug, doctorId, rating, status } = filter;
 
-  // --- 🛡️ ROLE-BASED RESTRICTION ---
-  if (user.role === 'ADMIN') {
-    if (targetType) andConditions.push({ targetType });
-  } else if (user.role === 'DOCTOR' || user.role === 'CLINIC') {
+  // ১. ম্যানেজারের এরিয়া আইডি বের করা
+  const manager = await prisma.manager.findUnique({
+    where: { userId: managerUserId },
+    select: { areaId: true },
+  });
+
+  if (!manager) throw new Error('Manager not found');
+
+  // ২. ফিল্টার কন্ডিশন তৈরি করা
+  const whereConditions: any = {
+    // ম্যানেজারের এরিয়া ফিল্টার
+    doctor: {
+      areas: {
+        some: { areaId: manager.areaId },
+      },
+    },
+  };
+
+  // ডাইনামিক ফিল্টার অ্যাড করা
+  const andConditions = [];
+
+  // ডাক্তার এর নাম দিয়ে সার্চ
+  if (searchTerm) {
     andConditions.push({
-      targetId: user.id,
-      targetType: user.role as 'DOCTOR' | 'CLINIC',
+      doctor: {
+        OR: [
+          {
+            user: {
+              name: {
+                contains: searchTerm,
+                mode: 'insensitive',
+              },
+            },
+          },
+          {
+            slug: {
+              contains: searchTerm,
+              mode: 'insensitive',
+            },
+          },
+        ],
+      },
     });
-  } else {
-    throw new ApiError(httpStatus.FORBIDDEN, "You don't have access to these reviews");
+  }
+  // ডিপার্টমেন্ট স্লাগ ফিল্টার
+  if (departmentSlug) {
+    andConditions.push({
+      doctor: {
+        department: { slug: departmentSlug },
+      },
+    });
   }
 
-  // --- 🔍 REMAINING FILTERS ---
-  if (rating && rating !== 'all') andConditions.push({ rating: Number(rating) });
-  if (status) andConditions.push({ status: status as ReviewStatus });
+  // রেটিং ফিল্টার (সরাসরি নম্বর হিসেবে চেক করবে)
+  if (rating) {
+    andConditions.push({
+      rating: Number(rating),
+    });
+  }
 
-  const whereCondition: Prisma.ReviewWhereInput =
-    andConditions.length > 0 ? { AND: andConditions } : {};
+  // স্ট্যাটাস ফিল্টার (APPROVED, PENDING, REJECTED)
+  if (status) {
+    andConditions.push({
+      status: status,
+    });
+  }
+  if (doctorId) {
+    andConditions.push({
+      doctorId: doctorId,
+    });
+  }
 
-  // --- 📊 MULTI-QUERY EXECUTION ---
-  const [statusStats, ratingStats, aggregateStats, replyCount] = await Promise.all([
-    // Group by Status
-    prisma.review.groupBy({
-      by: ['status'],
-      where: whereCondition,
-      _count: { id: true },
-    }),
-    // Group by Rating for Breakdown
-    prisma.review.groupBy({
-      by: ['rating'],
-      where: whereCondition,
-      _count: { id: true },
-    }),
-    // Calculate Average Rating
-    prisma.review.aggregate({
-      where: whereCondition,
-      _avg: { rating: true },
-      _count: { id: true },
-    }),
-    // Count reviews that have a reply
-    prisma.review.count({
-      where: {
-        ...whereCondition,
-        reviewReply: { isNot: null }, // Only count if reviewReply exists
+  // যদি কোনো ফিল্টার থাকে তবেই whereConditions এ যোগ হবে
+  if (andConditions.length > 0) {
+    whereConditions.AND = andConditions;
+  }
+
+  // ৩. ডাটা এবং টোটাল কাউন্ট ফেচ করা
+  const [reviews, total] = await Promise.all([
+    prisma.review.findMany({
+      where: whereConditions,
+      skip,
+      take: limit,
+      include: {
+        reviewer: { select: { name: true, image: true } },
+        doctor: {
+          select: {
+            user: { select: { name: true } },
+            specialization: true,
+            department: { select: { name: true, slug: true } },
+          },
+        },
+        reply: true,
       },
+      orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
     }),
+    prisma.review.count({ where: whereConditions }),
   ]);
-
-  // --- 🔄 TRANSFORMATION ---
-  const statuses = statusStats.reduce(
-    (acc: any, curr) => {
-      acc[curr.status.toLowerCase()] = curr._count.id;
-      return acc;
-    },
-    { pending: 0, approved: 0, rejected: 0 },
-  );
-
-  const ratings = ratingStats.reduce(
-    (acc: any, curr) => {
-      acc[curr.rating] = curr._count.id;
-      return acc;
-    },
-    { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-  );
-
-  const totalReviews = aggregateStats._count.id;
-  const averageRating = aggregateStats._avg.rating?.toFixed(1) || '0.0';
-
-  // Calculate Reply Percentage
-  const replyRate = totalReviews > 0 ? Math.round((replyCount / totalReviews) * 100) : 0;
-
+  const totalPage = Math.ceil(total / limit);
   return {
-    totalReviews,
-    averageRating,
-    replyCount,
-    replyRate,
-    ...statuses,
-    ratingBreakdown: ratings,
+    meta: { page, limit, total, totalPage },
+    data: reviews,
   };
 };
+
 const updateReview = async (
   reviewId: string,
   data: UpdateReviewInput,
   user: JwtPayload,
 ): Promise<any> => {
   return await prisma.$transaction(async (tx) => {
+    // ১. রিভিউটি খুঁজে বের করা এবং প্রয়োজনীয় ডাটা ইনক্লুড করা
     const existing = await tx.review.findUnique({
       where: { id: reviewId },
-      include: {
-        reviewer: {
-          select: { name: true, id: true },
-        },
+      select: {
+        id: true,
+        reviewerId: true,
+        doctorId: true,
       },
     });
 
-    if (!existing) {
-      throw new ApiError(httpStatus.NOT_FOUND, 'Review not found');
+    if (!existing || !existing.doctorId) {
+      throw new ApiError(httpStatus.NOT_FOUND, 'Review or associated doctor not found');
     }
 
-    // RBAC: Only Owner or Admin
-    if (user.role !== 'ADMIN' && user.id !== existing.reviewer.id) {
-      throw new ApiError(httpStatus.FORBIDDEN, 'Unauthorized');
+    // ৩. RBAC: শুধুমাত্র রিভিউ দাতা বা এডমিন আপডেট করতে পারবে
+    if (user.role !== 'MANAGER' && user.id !== existing.reviewerId) {
+      throw new ApiError(httpStatus.FORBIDDEN, 'Unauthorized to update this review');
     }
 
+    // ৪. রিভিউ আপডেট করা
     const updatedReview = await tx.review.update({
       where: { id: reviewId },
       data: { ...data },
     });
 
-    await recallRating(existing.targetId, existing.targetType, tx);
+    // ৫. রেটিং পুনরায় ক্যালকুলেট করা (নতুন doctorId এবং targetType সহ)
+    // নিশ্চিত করুন আপনার recallRating ফাংশন ৩টি আর্গুমেন্ট নেয় (targetId, targetType, tx)
+    await recallRating(existing.doctorId, tx);
 
     return updatedReview;
   });
@@ -443,12 +452,14 @@ const deleteReview = async (reviewId: string, user: JwtPayload) => {
   return await prisma.$transaction(async (tx) => {
     const existing = await tx.review.findUnique({
       where: { id: reviewId },
-      include: {
-        reviewer: { select: { name: true, id: true } },
+      select: {
+        id: true,
+        reviewerId: true,
+        doctorId: true,
       },
     });
 
-    if (!existing) {
+    if (!existing?.doctorId) {
       throw new ApiError(httpStatus.NOT_FOUND, 'Review not found');
     }
 
@@ -458,7 +469,7 @@ const deleteReview = async (reviewId: string, user: JwtPayload) => {
     });
 
     // 4️⃣ Recalculate 's rating
-    await recallRating(existing.targetId, existing.targetType, tx);
+    await recallRating(existing?.doctorId, tx);
 
     return;
   });
@@ -467,9 +478,9 @@ const deleteReview = async (reviewId: string, user: JwtPayload) => {
 export const ReviewsService = {
   replyToReview,
   createReview,
-  getAllReviews,
-  getReviewStats,
+
   getSingleTargetReviews,
   updateReview,
   deleteReview,
+  getReviewsByManagerArea,
 };

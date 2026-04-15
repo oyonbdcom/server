@@ -1,52 +1,29 @@
 import z from 'zod';
 import { updatePatientSchema } from './zodValidation';
 
-import { Gender } from '@prisma/client';
-
-export interface IPatientResponse {
+export type IPatientResponse = {
   id: string;
-  userId: string;
-  name: string;
+  name: string | null;
   phoneNumber: string;
   image: string | null;
+  role: 'PATIENT' | 'DOCTOR' | 'ADMIN' | 'MANAGER' | 'CLINIC';
   deactivate: boolean;
-  age: number | null;
-  gender: Gender | null;
-  bloodGroup: string | null;
-  address: string | null;
-  district: string | null;
-  city: string | null;
-  country?: string | null;
-  totalAppointments: number;
-  latestAppointment: ILatestAppointment | null;
+  patient: {
+    age: number | null;
+    gender: 'MALE' | 'FEMALE' | 'OTHER' | null;
+    address: string | null;
+    area: {
+      name: string | null;
+      district: {
+        name: string | null;
+      };
+    } | null;
+  } | null;
+
   createdAt: Date;
   updatedAt: Date;
-}
-
-export interface ILatestAppointment {
-  id: string;
-  date: Date;
-  status: string;
-  doctorName?: string;
-  clinicName?: string;
-  medicalRecordsCount: number;
-}
-export interface IPatientStats {
-  total: number;
-  active: number;
-  inactive: number;
-}
-// If you also need the Stats interface for the charts:
+};
 
 export type UpdatePatientInput = z.infer<typeof updatePatientSchema>['body'];
 
-// export interface IPatientWithRelations {
-//   appointments?: IAppointment[];
-//   user: IUser;
-//   prescriptions?: IPrescription[];
-//   favoriteDoctors?: IFavoriteDoctor[];
-//   medicalRecords?: IMedicalHistory[];
-//   doctorReviews?: IDoctorReview[];
-//   clinicReviews?: IClinicReview[];
-// }
 export const PatientFilterableFields = ['searchTerm', 'district', 'gender', 'active'];

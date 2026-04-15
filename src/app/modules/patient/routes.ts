@@ -1,19 +1,9 @@
 import express from 'express';
 import { protect, restrictTo } from '../../../middlewares/authMiddleware';
-import { zodValidate } from '../../../middlewares/zodValidation';
+import { uploadSingle } from '../../../middlewares/fileMiddleware';
 import { PatientController } from './controllers';
-import { PatientZodValidation } from './zodValidation';
 
 const router = express.Router();
-
-/**
- * @route   GET /api/v1/patients
- * @desc    Get all patients with filters & pagination
- * @access  Private (Admin Only)
- */
-router.get('/', protect, restrictTo('ADMIN'), PatientController.getPatients);
-
-router.get('/statistics', protect, restrictTo('ADMIN'), PatientController.getPatientStats);
 
 /**
  * @route   GET /api/v1/patients/:id
@@ -35,17 +25,11 @@ router.get(
  */
 router.patch(
   '/:id',
+  uploadSingle,
   protect,
   restrictTo('PATIENT', 'ADMIN'),
-  zodValidate(PatientZodValidation.updatePatientSchema),
+  // zodValidate(PatientZodValidation.updatePatientSchema),
   PatientController.updatePatient,
 );
-
-/**
- * @route   DELETE /api/v1/patients/:userId
- * @desc    Delete patient profile
- * @access  Private (Admin Only)
- */
-router.delete('/:userId', protect, restrictTo('ADMIN'), PatientController.deletePatient);
 
 export const PatientRoutes = router;

@@ -115,7 +115,8 @@ export const restrictTo =
 
     if (!roles.includes(req.user.role)) {
       return next(
-        new ApiError(httpStatus.BAD_REQUEST, 'You do not have permission to perform this action'),
+        // 403 Forbidden ব্যবহার করা নিরাপদ
+        new ApiError(httpStatus.FORBIDDEN, 'You do not have permission to perform this action'),
       );
     }
 

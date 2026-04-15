@@ -21,18 +21,6 @@ const register = catchAsync(async (req, res) => {
   });
 });
 
-const verifyOtpForExistingUser = catchAsync(async (req, res) => {
-  const payload = req.body;
-  const result = await AuthService.verifyOtpForExistingUser(payload);
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Password reset successful',
-    data: result,
-  });
-});
-
 const login = catchAsync(async (req, res) => {
   const result = await AuthService.login(req.body);
 
@@ -67,18 +55,17 @@ const sendOtp = catchAsync(async (req, res) => {
     data: result,
   });
 });
+const verifyOtpForExistingUser = catchAsync(async (req, res) => {
+  const payload = req.body;
+  const result = await AuthService.verifyOtpForExistingUser(payload);
 
-// const forgetVerifyOtp = catchAsync(async (req, res) => {
-//   const resetData = req.body;
-//   const result = await AuthService.forgetVerifyOtp(resetData);
-
-//   sendResponse(res, {
-//     statusCode: httpStatus.OK,
-//     success: true,
-//     message: 'Password reset successful',
-//     data: result,
-//   });
-// });
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Password reset successful',
+    data: result,
+  });
+});
 
 const resetPassword = catchAsync(async (req, res) => {
   const resetData = req.body;
@@ -160,9 +147,9 @@ export const AuthController = {
   register,
   login,
   sendOtp,
+  verifyOtpForExistingUser,
   resetPassword,
   refreshToken,
-  verifyOtpForExistingUser,
   logout,
   changePassword,
 };

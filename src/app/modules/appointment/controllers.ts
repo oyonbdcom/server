@@ -10,23 +10,6 @@ import { AppointmentsFilterableFields } from './constant';
 import { IAppointmentResponse, IAppointmentStats } from './interface';
 import { AppointmentService } from './service';
 
-// Create Appointment
-const sendBookingOtp = catchAsync(async (req, res) => {
-  const payload = req.body;
-
-  if (!payload) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'ফোন নম্বর প্রদান করা আবশ্যক');
-  }
-
-  const result = await AppointmentService.sendBookingOtp(payload);
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: result.message,
-    data: null,
-  });
-});
 const createAppointment = catchAsync(async (req, res) => {
   const appointmentData = req.body;
   const authUser = req.user;
@@ -75,26 +58,7 @@ const createAppointmentForAdmin = catchAsync(async (req, res) => {
     data: result,
   });
 });
-const createAppointmentForRegisteredUser = catchAsync(async (req, res) => {
-  const appointmentData = req.body;
-  const userId = req.user?.id;
-  if (!userId) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
-  }
-  // 2. Call service with both payload and existing user ID
-  const result = await AppointmentService.createAppointmentForRegisteredUser(
-    userId,
-    appointmentData,
-  );
 
-  // 4. Send response including the appointment details and access token
-  sendResponse(res, {
-    statusCode: httpStatus.CREATED,
-    success: true,
-    message: 'Appointment booked successfully',
-    data: result,
-  });
-});
 const getMyAppointments = catchAsync(async (req, res) => {
   const user = req.user;
   const paginationOptions = pick(req.query, paginationFields);
@@ -112,6 +76,25 @@ const getMyAppointments = catchAsync(async (req, res) => {
     stats: result?.stats,
   });
 });
+
+// manager appointments
+const getManagerAreaAppointments = catchAsync(async (req, res) => {
+  const user = (req as any).user;
+  const filters = pick(req.query, AppointmentsFilterableFields);
+  const options = pick(req.query, ['limit', 'page', 'sortBy', 'sortOrder']);
+
+  const result = await AppointmentService.getManagerAreaAppointments(user.id, filters, options);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'এরিয়া অ্যাপয়েন্টমেন্ট সফলভাবে পাওয়া গেছে',
+    meta: result.meta,
+    data: result.data,
+  });
+});
+
+// export data
 const exportDoctorDailyPdf = catchAsync(async (req, res) => {
   const filters = pick(req.query, AppointmentsFilterableFields);
   const userId = req.user?.id;
@@ -133,6 +116,7 @@ const exportDoctorDailyPdf = catchAsync(async (req, res) => {
     data: pdfBuffer,
   });
 });
+
 // Reschedule/Update Appointment
 const updateAppointment = catchAsync(async (req, res) => {
   const aptId = req.params.aptId as string;
@@ -154,9 +138,8 @@ const updateAppointment = catchAsync(async (req, res) => {
 export const AppointmentsController = {
   getMyAppointments,
   createAppointmentForAdmin,
-  createAppointmentForRegisteredUser,
+  getManagerAreaAppointments,
   createAppointment,
   updateAppointment,
   exportDoctorDailyPdf,
-  sendBookingOtp,
 };

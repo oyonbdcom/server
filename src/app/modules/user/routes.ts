@@ -11,12 +11,26 @@ router.get('/me', protect, UserController.getCurrentUser);
 
 // Admin routes
 router.get('/', protect, restrictTo('ADMIN'), UserController.getUsers);
+router.get(
+  '/managers',
+  protect,
+  restrictTo('ADMIN'),
+  UserController.getAllManagers, // আপনার কন্ট্রোলারের নতুন মেথড
+);
+
 router.get('/:id', protect, restrictTo('ADMIN'), UserController.getUserById);
 router.patch(
   '/:id/role',
   protect,
   restrictTo('ADMIN'),
   zodValidate(UserZodValidation.updateUserRoleSchema),
+  UserController.updateUserRole,
+);
+router.patch(
+  '/update-role/:id',
+  protect,
+  restrictTo('ADMIN'),
+  // zodValidate(UserZodValidation.updateUserRoleSchema),
   UserController.updateUserRole,
 );
 router.delete('/:id', protect, restrictTo('ADMIN'), UserController.deleteUser);

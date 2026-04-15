@@ -1,3 +1,4 @@
+import { UserRole } from '@prisma/client';
 import express from 'express';
 import { protect, restrictTo } from '../../../middlewares/authMiddleware';
 import { zodValidate } from '../../../middlewares/zodValidation';
@@ -17,10 +18,15 @@ router.post(
 router.patch(
   '/:id',
   protect,
-  restrictTo('CLINIC'),
+  restrictTo('CLINIC', UserRole?.MANAGER),
   zodValidate(ScheduleZodValidation.updateScheduleSchema),
   ScheduleController.updateSchedule,
 );
-router.delete('/:id', protect, restrictTo('CLINIC'), ScheduleController.deleteSchedule);
+router.delete(
+  '/:id',
+  protect,
+  restrictTo('CLINIC', UserRole?.MANAGER),
+  ScheduleController.deleteSchedule,
+);
 
 export const ScheduleRoutes = router;

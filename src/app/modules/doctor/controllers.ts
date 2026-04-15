@@ -6,7 +6,7 @@ import { catchAsync } from '../../../shared/catchAsync';
 import { sendResponse } from '../../../shared/sendResponse';
 import ApiError from '../../../utils/apiError';
 import { DoctorFilterableFields } from './constant';
-import { IDoctorResponse, IDoctorStats } from './interface';
+import { IDoctorResponse } from './interface';
 import { DoctorService } from './service';
 
 const createDoctor = catchAsync(async (req, res) => {
@@ -20,12 +20,47 @@ const createDoctor = catchAsync(async (req, res) => {
   });
 });
 
+// add to area
+const addDoctorToArea = catchAsync(async (req, res) => {
+  const userId = req.user?.id;
+  const { doctorId } = req.body;
+  if (!userId) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'You are not authorized');
+  }
+
+  const result = await DoctorService.addDoctorToArea(doctorId, userId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Doctor added to your area successfully!',
+    data: result,
+  });
+});
+
+// remove from area
+const removeDoctorFromArea = catchAsync(async (req, res) => {
+  const { doctorId } = req.body;
+  const user = req.user;
+  if (!user) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'You are not authorized');
+  }
+  const result = await DoctorService.removeDoctorFromArea(doctorId, user?.id);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'ডাক্তারকে আপনার এরিয়া থেকে সফলভাবে রিমুভ করা হয়েছে!',
+    data: result,
+  });
+});
+
 const getDoctors = catchAsync(async (req, res) => {
   const paginationOptions = pick(req.query, paginationFields);
 
   const filter = pick(req.query, DoctorFilterableFields);
-
-  const result = await DoctorService.getDoctors(filter, paginationOptions);
+  const userId = req.user?.id;
+  const result = await DoctorService.getDoctors(filter, paginationOptions, userId);
 
   sendResponse<IDoctorResponse[]>(res, {
     statusCode: httpStatus.OK,
@@ -33,6 +68,20 @@ const getDoctors = catchAsync(async (req, res) => {
     message: 'Doctors retrieved successfully',
     meta: result?.meta || null,
     data: result?.data || null,
+  });
+});
+const getAllDoctorForManager = catchAsync(async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
+  }
+  const result = await DoctorService.getAllDoctorForManager(userId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'ক্লিনিক লিস্ট সফলভাবে পাওয়া গেছে',
+    data: result,
   });
 });
 
@@ -51,31 +100,21 @@ const getDoctorById = catchAsync(async (req, res) => {
     data: result,
   });
 });
-const getDoctorStats = catchAsync(async (req, res) => {
-  const result = await DoctorService.getDoctorStats();
+// const getDoctorStats = catchAsync(async (req, res) => {
+//   const result = await DoctorService.getDoctorStats();
 
-  sendResponse<IDoctorStats>(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Doctors statics retrieved successfully',
-    data: result,
-  });
-});
+//   sendResponse<IDoctorStats>(res, {
+//     statusCode: httpStatus.OK,
+//     success: true,
+//     message: 'Doctors statics retrieved successfully',
+//     data: result,
+//   });
+// });
 
 const updateDoctor = catchAsync(async (req, res) => {
-  const { userId } = req.params as { userId: string };
-  const loggedInUserId = req.user?.id;
-  const loggedInUserRole = req.user?.role;
+  const { doctorId } = req.params as { doctorId: string };
 
-  if (!userId) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'User ID is required');
-  }
-
-  if (loggedInUserRole === 'DOCTOR' && userId !== loggedInUserId) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'Doctors can only update their own profile');
-  }
-
-  const result = await DoctorService.updateDoctor(userId, req.body);
+  const result = await DoctorService.updateDoctor(doctorId, req.body);
   sendResponse<IDoctorResponse>(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -84,26 +123,27 @@ const updateDoctor = catchAsync(async (req, res) => {
   });
 });
 
-const deleteDoctor = catchAsync(async (req, res) => {
-  const { userId } = req?.params as { userId: string };
-  if (!userId) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'userid is required');
-  }
-  const deletedDoctor = await DoctorService.deleteDoctor(userId);
+// const deleteDoctor = catchAsync(async (req, res) => {
+//   const { userId } = req?.params as { userId: string };
+//   if (!userId) {
+//     throw new ApiError(httpStatus.BAD_REQUEST, 'userid is required');
+//   }
+//   const deletedDoctor = await DoctorService.deleteDoctor(userId);
 
-  sendResponse<IDoctorResponse>(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Doctor deleted successfully',
-    data: deletedDoctor,
-  });
-});
+//   sendResponse<IDoctorResponse>(res, {
+//     statusCode: httpStatus.OK,
+//     success: true,
+//     message: 'Doctor deleted successfully',
+//     data: deletedDoctor,
+//   });
+// });
 
 export const DoctorController = {
   createDoctor,
   getDoctors,
-  getDoctorStats,
-  deleteDoctor,
+  getAllDoctorForManager,
   getDoctorById,
   updateDoctor,
+  addDoctorToArea,
+  removeDoctorFromArea,
 };

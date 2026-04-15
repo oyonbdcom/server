@@ -42,28 +42,26 @@ const replyToReview = catchAsync(async (req, res) => {
 // ======================================================
 // GET ALL REVIEWS (By )
 // ======================================================
-const getAllReviews = catchAsync(async (req, res) => {
-  const paginationOptions = pick(req.query, paginationFields);
-  const filter = pick(req.query, ReviewFilterableFields);
-  const user = req?.user;
-  if (!user) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
-  }
-  const result = await ReviewsService.getAllReviews(user, filter, paginationOptions);
+// const getAllReviews = catchAsync(async (req, res) => {
+//   const paginationOptions = pick(req.query, paginationFields);
+//   const filter = pick(req.query, ReviewFilterableFields);
+//   const user = req?.user;
+//   if (!user) {
+//     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
+//   }
+//   const result = await ReviewsService.getAllReviews(user, filter, paginationOptions);
 
-  sendResponse<IReviewResponse[]>(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: ' reviews retrieved successfully',
-    meta: result.meta,
-    data: result.data,
-  });
-});
+//   sendResponse<IReviewResponse[]>(res, {
+//     statusCode: httpStatus.OK,
+//     success: true,
+//     message: ' reviews retrieved successfully',
+//     meta: result.meta,
+//     data: result.data,
+//   });
+// });
 const getSingleTargetReviews = catchAsync(async (req, res) => {
   // 1. Extract path parameters
-  const { targetId } = req.params as { targetId: string };
-
-  const { targetType } = req.query; // Or req.params depending on your route design
+  const { doctorId } = req.params as { doctorId: string };
 
   // 2. Extract query filters and pagination options
   const filters = pick(req.query, ReviewFilterableFields);
@@ -71,8 +69,8 @@ const getSingleTargetReviews = catchAsync(async (req, res) => {
 
   // 3. Call the service
   const result = await ReviewsService.getSingleTargetReviews(
-    targetId,
-    targetType as 'DOCTOR' | 'CLINIC',
+    doctorId,
+
     filters,
     options,
   );
@@ -86,23 +84,42 @@ const getSingleTargetReviews = catchAsync(async (req, res) => {
     data: result.data,
   });
 });
-
-const getReviewStats = catchAsync(async (req, res) => {
-  const filter = pick(req.query, ReviewFilterableFields);
-  const user = req?.user;
+const getReviewsByManagerArea = catchAsync(async (req, res) => {
+  const user = req.user; // JWT থেকে পাওয়া ম্যানেজার তথ্য
   if (!user) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
-  const result = await ReviewsService.getReviewStats(user, filter);
+
+  // 2. Extract query filters and pagination options
+  const filters = pick(req.query, ReviewFilterableFields);
+  const options = pick(req.query, paginationFields);
+  const result = await ReviewsService.getReviewsByManagerArea(user?.id, filters, options);
 
   sendResponse(res, {
-    statusCode: 200,
+    statusCode: httpStatus.OK,
     success: true,
-    message: 'Review statistics fetched successfully',
-    data: null,
-    stats: result,
+    message: 'এরিয়া ভিত্তিক ডাক্তারদের রিভিউ সফলভাবে পাওয়া গেছে!',
+    data: result?.data,
+    meta: result?.meta,
   });
 });
+
+// const getReviewStats = catchAsync(async (req, res) => {
+//   const filter = pick(req.query, ReviewFilterableFields);
+//   const user = req?.user;
+//   if (!user) {
+//     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
+//   }
+//   const result = await ReviewsService.getReviewStats(user, filter);
+
+//   sendResponse(res, {
+//     statusCode: 200,
+//     success: true,
+//     message: 'Review statistics fetched successfully',
+//     data: null,
+//     stats: result,
+//   });
+// });
 // ======================================================
 // UPDATE REVIEW
 // ======================================================
@@ -145,9 +162,9 @@ const deleteReview = catchAsync(async (req, res) => {
 export const ReviewsController = {
   replyToReview,
   createReviews,
-  getAllReviews,
-  getReviewStats,
+
   getSingleTargetReviews,
   updateReview,
   deleteReview,
+  getReviewsByManagerArea,
 };

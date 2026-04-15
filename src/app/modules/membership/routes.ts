@@ -1,3 +1,4 @@
+import { UserRole } from '@prisma/client';
 import express from 'express';
 import { protect, restrictTo } from '../../../middlewares/authMiddleware';
 import { zodValidate } from '../../../middlewares/zodValidation';
@@ -15,27 +16,32 @@ router.get(
 );
 
 // ২. সাধারণ মেম্বারশিপ লিস্ট (যেখানে সব ডাটা থাকে)
-router.get('/', protect, restrictTo('CLINIC'), MembershipController.getClinicMemberships);
+router.get(
+  '/',
+  protect,
+  restrictTo(UserRole.CLINIC, UserRole.MANAGER),
+  MembershipController.getClinicMemberships,
+);
 
 router.post(
   '/',
   protect,
-  restrictTo('CLINIC'),
-  zodValidate(ClinicMembershipZodValidation.createClinicMembershipSchema),
+  restrictTo(UserRole.MANAGER),
+  zodValidate(ClinicMembershipZodValidation.createMembershipSchema),
   MembershipController.createMembership,
 );
 
 router.patch(
   '/:membershipId',
   protect,
-  restrictTo('CLINIC'),
+  restrictTo('CLINIC', UserRole?.MANAGER),
   MembershipController.updateMemberships,
 );
 
 router.delete(
   '/:membershipId',
   protect,
-  restrictTo('CLINIC'),
+  restrictTo('CLINIC', UserRole?.MANAGER),
   MembershipController.deleteMembership,
 );
 

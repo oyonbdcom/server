@@ -6,8 +6,6 @@ export interface IUserResponse {
   phoneNumber: string;
   role: UserRole;
   image?: string | null;
-  lastActiveAt?: Date | null;
-  lastLoginAt?: Date | null;
 
   doctor?: any;
   patient?: any;

@@ -1,26 +1,29 @@
 import { z } from 'zod';
 
-export const clinicMembershipSchema = z.object({
-  doctorId: z.string().min(1, 'চিকিৎসক নির্বাচন করা আবশ্যক'),
+export const membershipSchema = z.object({
+  doctorId: z.string().min(1, { message: 'ডাক্তার নির্বাচন করা আবশ্যক' }),
+  clinicId: z.string().min(1, { message: 'ক্লিনিক নির্বাচন করা আবশ্যক' }),
 
-  fee: z.number().min(1, 'ভিজিট বা কনসালটেশন ফি প্রয়োজন'),
-  // ডাটাবেজে "২০" স্ট্রিং হিসেবে সেভ হবে
-  maxAppointments: z.number().min(1, 'সর্বোচ্চ অ্যাপয়েন্টমেন্ট সংখ্যা প্রয়োজন'),
-  // ডাটাবেজে "১০" স্ট্রিং হিসেবে সেভ হবে
-  discount: z.number().min(1, 'ডিসকাউন্ট প্রদান করা প্রয়োজন'),
+  fee: z.coerce.number().min(0, { message: 'ফি ০ এর কম হতে পারবে না' }),
+
+  discount: z.coerce
+    .number()
+    .min(0, { message: 'ডিসকাউন্ট ০ এর কম হতে পারবে না' })
+    .max(100, { message: 'ডিসকাউন্ট ১০০% এর বেশি হতে পারবে না' }),
+
+  active: z.boolean().default(true),
 });
-
 // Schema for creating a new ClinicMembership
-export const createClinicMembershipSchema = z.object({
-  body: clinicMembershipSchema,
+export const createMembershipSchema = z.object({
+  body: membershipSchema,
 });
 
 // Schema for updating an existing ClinicMembership
 export const updateClinicMembershipSchema = z.object({
-  body: clinicMembershipSchema.partial(),
+  body: membershipSchema.partial(),
 });
 
 export const ClinicMembershipZodValidation = {
-  createClinicMembershipSchema,
+  createMembershipSchema,
   updateClinicMembershipSchema,
 };

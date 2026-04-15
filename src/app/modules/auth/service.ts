@@ -8,7 +8,6 @@ import config from '../../../config/config';
 import { jwtTokenHelper } from '../../../helper/jwtHelper';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
-import { createSlug } from '../../../utils/createSlug';
 import { USER_SELECT } from '../user/constant';
 import { IUserResponse } from '../user/interface';
 import { ILoginResponse } from './interface';
@@ -31,7 +30,7 @@ const generateTokens = (user: IUserResponse) => {
 const register = async (data: RegisterRequest & { otp: string }): Promise<IUserResponse> => {
   const { phoneNumber, password, name, role, otp } = data;
 
-  // ১. OTP ভেরিফিকেশন (সবকিছুর আগে)
+  // ১. OTP ভেরিফিকেশন
   const otpRecord = await prisma.otp.findUnique({
     where: { phoneNumber },
   });
@@ -41,40 +40,26 @@ const register = async (data: RegisterRequest & { otp: string }): Promise<IUserR
   }
 
   if (new Date() > otpRecord.otpExpires) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটির মেয়াদ শেষ হয়ে গেছে।');
+    throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটির মেয়াদ শেষ হয়ে গেছে।');
   }
 
-  // ২. পাসওয়ার্ড চেক ও হ্যাশিং
-  if (!PASSWORD_REGEX.test(password)) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'পাসওয়ার্ড পলিসি মানা হয়নি।');
-  }
   const hashedPassword = await bcrypt.hash(password, 12);
 
-  // ৩. ট্রানজেকশন (ইউজার + প্রোফাইল + ওটিপি ডিলিট)
   const result = await prisma.$transaction(async (tx) => {
-    // ইউজার তৈরি
     const newUser = await tx.user.create({
       data: {
         phoneNumber,
         password: hashedPassword,
         name: name ?? '',
         role: (role as UserRole) || 'PATIENT',
-        isPhoneVerified: true, // যেহেতু ওটিপি মিলেছে
+        isPhoneVerified: true,
       },
       select: USER_SELECT,
     });
 
-    const slug = createSlug(newUser.name || 'user');
-    const profileData = { userId: newUser.id, slug };
-
-    // রোল অনুযায়ী প্রোফাইল তৈরি
-    if (newUser.role === 'CLINIC') await tx.clinic.create({ data: profileData });
-    else if (newUser.role === 'DOCTOR')
-      await tx.doctor.create({ data: { ...profileData, department: 'General' } });
-    else await tx.patient.create({ data: profileData });
-
-    // ওটিপি ব্যবহার হয়ে গেছে, তাই ডিলিট
-    await tx.otp.delete({ where: { phoneNumber } });
+    await tx.otp.delete({
+      where: { phoneNumber },
+    });
 
     return newUser;
   });
@@ -183,7 +168,6 @@ const login = async (payload: {
     where: { id: user.id },
     data: {
       refreshToken: tokens.refreshToken,
-      lastLoginAt: new Date(),
     },
   });
 
@@ -213,8 +197,6 @@ const sendOtp = async (phoneNumber: string): Promise<any> => {
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // ৫ মিনিট মেয়াদ
 
-  // ২. Otp টেবিলে ডাটা সেভ বা আপডেট (Upsert ব্যবহার করা হয়েছে)
-  // এটি একই নম্বরে বারবার ওটিপি পাঠালে আগেরটি আপডেট করে দিবে
   await prisma.otp.upsert({
     where: { phoneNumber },
     update: {
@@ -239,9 +221,6 @@ const sendOtp = async (phoneNumber: string): Promise<any> => {
   //     'SMS পাঠাতে সমস্যা হয়েছে, আবার চেষ্টা করুন।',
   //   );
   // }
-
-  // ডেভেলপমেন্টের জন্য কনসোলে দেখা (প্রোডাকশনে ডিলিট করে দিবেন)
-  console.log(`OTP for ${phoneNumber}: ${otp}`);
 
   return {
     success: true,

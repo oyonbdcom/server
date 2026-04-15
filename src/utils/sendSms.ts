@@ -33,7 +33,7 @@ export const sendSMS = async (number: string | number, message: string): Promise
     }
 
     const data = await response.json();
-    console.log({ data });
+
     // ৩. API রেসপন্স কোড চেক করা (BulkSMSBD সাধারণত ২০২ কোড দেয় সফল হলে)
     if (data.response_code === 202) {
       return {

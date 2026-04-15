@@ -8,12 +8,6 @@ import { AuthValidation } from './zodValidation';
 const routes = express.Router();
 
 routes.post('/register', zodValidate(AuthValidation.registerSchema), AuthController.register);
-routes.post(
-  '/verify-otp',
-
-  zodValidate(AuthValidation.verifyOtpSchema),
-  AuthController.verifyOtpForExistingUser,
-);
 
 routes.post('/login', authLimiter, zodValidate(AuthValidation.loginSchema), AuthController.login);
 
@@ -23,11 +17,14 @@ routes.post(
   zodValidate(AuthValidation.sendOtpSchema),
   AuthController.sendOtp,
 );
-// routes.post(
-//   '/forgot-verify-otp',
-//   zodValidate(AuthValidation.verifyOtpSchema),
-//   AuthController.forgetVerifyOtp,
-// );
+
+// forget password verify with otp
+routes.post(
+  '/verify-otp',
+
+  zodValidate(AuthValidation.verifyOtpSchema),
+  AuthController.verifyOtpForExistingUser,
+);
 routes.post(
   '/reset-password',
   zodValidate(AuthValidation.resetPasswordSchema),

@@ -1,6 +1,7 @@
 export const createSlug = (text: string, suffix?: string): string => {
   const baseSlug = text
     .toString()
+    .normalize('NFKD') // 🔥 important for unicode
     .toLowerCase()
     .trim()
     .replace(/\s+/g, '-')

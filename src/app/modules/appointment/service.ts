@@ -28,15 +28,17 @@ const getMyAppointments = async (
     date?: string;
     status?: AppointmentStatus;
     doctorId?: string;
+    district?: string;
+    area?: string;
   },
   options: IOptions,
 ): Promise<IGenericResponse<IAppointmentResponse[], IAppointmentStats>> => {
-  const { status, date, doctorId } = filters;
+  const { status, date, doctorId, district, area } = filters;
   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
 
   const where: Prisma.AppointmentWhereInput = {};
 
-  // 1. Scoping by Role
+  // ১. Scoping by Role
   if (user?.role === 'PATIENT') {
     where.patientId = user?.id;
   } else if (user?.role === 'DOCTOR') {
@@ -45,28 +47,55 @@ const getMyAppointments = async (
     where.clinicId = user?.id;
   }
 
+  // ২. ডক্টর ফিল্টার
   if (doctorId) {
     where.doctorId = doctorId;
   }
 
-  const todayStart = bdStartOfDay(date).toDate();
-  const todayEnd = bdEndOfDay(date).toDate();
+  if (user?.role === 'ADMIN') {
+    if (area) {
+      where.clinic = {
+        clinic: {
+          area: {
+            slug: area,
+            ...(district && {
+              district: {
+                slug: district,
+              },
+            }),
+          },
+        },
+      };
+    } else if (district) {
+      where.clinic = {
+        clinic: {
+          area: {
+            district: {
+              slug: district,
+            },
+          },
+        },
+      };
+    }
+  }
 
-  // 3. Date Filtering
+  // ৪. তারিখ ফিল্টার
   if (date) {
+    const todayStart = bdStartOfDay(date).toDate();
+    const todayEnd = bdEndOfDay(date).toDate();
     where.appointmentDate = {
       gte: todayStart,
       lte: todayEnd,
     };
   }
 
-  // ৪. স্ট্যাটাস ফিল্টার (শুধুমাত্র মেইন ডাটার জন্য, স্ট্যাটস কাউন্টিং এর জন্য নয়)
+  // ৫. স্ট্যাটাস ফিল্টার (শুধুমাত্র মেইন ডাটার জন্য)
   const dataWhere = { ...where };
   if (status) {
     dataWhere.status = status;
   }
 
-  // ৫. Parallel Execution
+  // ৬. Parallel Execution
   const [result, total, pendingCount, scheduledCount, completedCount, cancelledCount] =
     await Promise.all([
       prisma.appointment.findMany({
@@ -76,7 +105,7 @@ const getMyAppointments = async (
         orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { serialNumber: 'asc' },
         include: appointmentPopulate,
       }),
-      prisma.appointment.count({ where }), // নির্দিষ্ট ফিল্টারে মোট সংখ্যা
+      prisma.appointment.count({ where }),
       prisma.appointment.count({ where: { ...where, status: 'PENDING' } }),
       prisma.appointment.count({ where: { ...where, status: 'SCHEDULED' } }),
       prisma.appointment.count({ where: { ...where, status: 'COMPLETED' } }),
@@ -103,6 +132,135 @@ const getMyAppointments = async (
   };
 };
 
+const getManagerAreaAppointments = async (
+  userId: string,
+  filters: any,
+  options: IOptions,
+): Promise<IGenericResponse<any[]>> => {
+  const { limit, page, skip } = paginationCalculator(options);
+  const { searchTerm, status, startDate, endDate, clinicId, doctorId } = filters;
+  console.log(filters);
+  const manager = await prisma.manager.findUnique({
+    where: { userId },
+    select: { areaId: true },
+  });
+  console.log(doctorId);
+  if (!manager) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'ম্যানেজার প্রোফাইল পাওয়া যায়নি!');
+  }
+
+  // এখানে টাইপ ডিফাইন করে দিন
+  const andConditions: Prisma.AppointmentWhereInput[] = [];
+
+  // ১. এরিয়া ফিল্টার
+  andConditions.push({
+    membership: {
+      clinic: {
+        areaId: manager.areaId,
+      },
+    },
+  });
+
+  // ২. সার্চ কন্ডিশন
+  if (searchTerm) {
+    const searchMode = 'insensitive';
+
+    andConditions.push({
+      OR: [
+        { patientName: { contains: searchTerm, mode: searchMode } },
+        { code: { contains: searchTerm, mode: searchMode } },
+        { phoneNumber: { contains: searchTerm, mode: searchMode } },
+        {
+          doctor: {
+            name: { contains: searchTerm, mode: searchMode },
+          },
+        },
+        {
+          membership: {
+            clinic: {
+              name: { contains: searchTerm, mode: searchMode },
+            },
+          },
+        },
+      ],
+    });
+  }
+
+  // ৩. স্ট্যাটাস ফিল্টার
+  if (status) {
+    andConditions.push({ status: status });
+  }
+
+  // ৪. নির্দিষ্ট ক্লিনিক ফিল্টার
+  // clinic filter
+  if (clinicId) {
+    andConditions.push({
+      membership: {
+        clinicId: clinicId,
+      },
+    });
+  }
+
+  // doctor filter
+  if (doctorId) {
+    andConditions.push({
+      membership: {
+        doctorId: doctorId,
+      },
+    });
+  }
+
+  // ৫. তারিখ রেঞ্জ ফিল্টার
+  if (startDate && endDate) {
+    andConditions.push({
+      appointmentDate: {
+        gte: new Date(startDate as string),
+        lte: new Date(endDate as string),
+      },
+    });
+  }
+
+  const whereConditions: Prisma.AppointmentWhereInput =
+    andConditions.length > 0 ? { AND: andConditions } : {};
+
+  const result = await prisma.appointment.findMany({
+    where: whereConditions,
+    skip,
+    take: limit,
+    orderBy:
+      options.sortBy && options.sortOrder
+        ? { [options.sortBy]: options.sortOrder }
+        : { createdAt: 'desc' },
+    include: {
+      doctor: {
+        select: {
+          name: true,
+          image: true,
+          doctor: { select: { specialization: true } },
+        },
+      },
+      patient: {
+        select: { name: true, image: true },
+      },
+      membership: {
+        // ড্রয়ারে ক্লিনিক নাম দেখানোর জন্য এটি প্রয়োজন হতে পারে
+        include: {
+          clinic: true,
+        },
+      },
+    },
+  });
+
+  const total = await prisma.appointment.count({
+    where: whereConditions,
+  });
+  const totalPage = Math.ceil((total || 0) / limit);
+  return {
+    meta: { total, page, limit, totalPage },
+    data: result,
+  };
+};
+
 const exportDailyPdf = async (
   userId: string,
   filters: {
@@ -124,7 +282,7 @@ const exportDailyPdf = async (
     prisma.user.findUnique({ where: { id: doctorId }, select: { name: true } }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { name: true, clinic: { select: { address: true, phoneNumber: true } } },
+      select: { name: true, clinic: { select: { address: true } } },
     }),
   ]);
   const statusFilter = status
@@ -162,11 +320,8 @@ const exportDailyPdf = async (
     doc.fillColor('#1a2a3a').fontSize(22).text(clinicName, { align: 'center' });
 
     const clinicAddress = clinic?.clinic?.address || 'Address not provided';
-    const clinicPhone = clinic?.clinic?.phoneNumber || 'No Contact Info';
-    doc
-      .fontSize(10)
-      .fillColor('#555')
-      .text(`${clinicAddress} | Support: ${clinicPhone}`, { align: 'center' });
+
+    doc.fontSize(10).fillColor('#555').text(`${clinicAddress} |  `, { align: 'center' });
     doc.moveDown(1.5);
 
     // Separator Line
@@ -265,45 +420,12 @@ const exportDailyPdf = async (
   return pdfBuffer;
 };
 
-// ... existing imports
-const sendBookingOtp = async (payload: IAppointmentCreateInput): Promise<any> => {
-  const { phoneNumber, patientName, doctorId } = payload;
-
-  // ৪. ওটিপি স্প্যাম প্রোটেকশন (১ মিনিট গ্যাপ)
-  const existingOtp = await prisma.otp.findUnique({ where: { phoneNumber } });
-  if (existingOtp) {
-    const lastSent = new Date(existingOtp.updatedAt).getTime();
-    if (Date.now() - lastSent < 60000) {
-      throw new ApiError(httpStatus.TOO_MANY_REQUESTS, 'দয়া করে ১ মিনিট অপেক্ষা করুন।');
-    }
-  }
-
-  // ৫. ওটিপি জেনারেট ও সেভ
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
-
-  await prisma.otp.upsert({
-    where: { phoneNumber },
-    update: { otp, otpExpires, updatedAt: new Date() },
-    create: { phoneNumber, otp, otpExpires },
-  });
-
-  // ৫. SMS পাঠানোর লজিক
-  const message = `${config.site.siteName || 'Sasthik'}: Your verification code is ${otp}. Stay healthy with us!`;
-
-  // await sendSMS(phoneNumber, message);
-
-  return {
-    success: true,
-    message: 'আপনার মোবাইলে ৬ ডিজিটের ওটিপি পাঠানো হয়েছে।',
-  };
-};
-
 export const createAppointment = async (
   payload: IAppointmentCreateInput & { otp: string },
   authUser?: JwtPayload,
 ): Promise<any> => {
   const result = await prisma.$transaction(async (tx) => {
+    console.log('createAppointment', payload);
     // 1️⃣ OTP validation
     const otpRecord = await tx.otp.findUnique({
       where: { phoneNumber: payload.phoneNumber },
@@ -390,14 +512,7 @@ export const createAppointment = async (
             role: 'PATIENT',
             password: hashedPassword,
             isDefaultPassword: true,
-            patient: {
-              create: {
-                address: payload.address || null,
-                slug,
-              },
-            },
           },
-          include: { patient: true },
         });
       }
     }
@@ -413,9 +528,13 @@ export const createAppointment = async (
         status: 'PENDING',
         code: generateAppointmentCode(6),
         note: payload.note || null,
-        doctorId: payload.doctorId,
-        clinicId: payload.clinicId,
-        patientId: targetUser.id,
+        doctor: { connect: { id: payload.doctorId } },
+        clinic: { connect: { id: payload.clinicId } },
+        patient: { connect: { id: targetUser?.id } },
+
+        // যদি আপনার পেলোডে membershipId থাকে তবে এটি অবশ্যই দিন
+
+        membership: { connect: { id: payload.membershipId } },
         discount: payload.discount || 0,
       },
     });
@@ -432,11 +551,16 @@ export const createAppointment = async (
         where: { id: targetUser.id },
         data: {
           refreshToken: tokens.refreshToken,
-          lastLoginAt: new Date(),
         },
       });
     }
-
+    if (newAppointment) {
+      sendPushNotification(
+        newAppointment.clinicId,
+        'নতুন বুকিং! 🏥',
+        `${newAppointment.patientName} একটি নতুন অ্যাপয়েন্টমেন্ট বুক করেছেন`,
+      ).catch((err) => console.error('Notification Error:', err));
+    }
     // 8️⃣ Return
     return {
       ...(tokens && {
@@ -509,12 +633,6 @@ const createAppointmentForAdmin = async (payload: IAppointmentCreateInput): Prom
           role: 'PATIENT',
           password: hashedPassword,
           isDefaultPassword: true,
-          patient: {
-            create: {
-              address: payload.address || null,
-              slug,
-            },
-          },
         },
       });
     }
@@ -528,7 +646,7 @@ const createAppointmentForAdmin = async (payload: IAppointmentCreateInput): Prom
         address: payload.address || null,
         serialNumber: payload.serialNumber,
         appointmentDate: bdNow().toDate(),
-
+        membershipId: payload?.membershipId,
         status: 'SCHEDULED',
         code: generateAppointmentCode(6),
         doctorId: payload.doctorId,
@@ -549,8 +667,8 @@ const createAppointmentForAdmin = async (payload: IAppointmentCreateInput): Prom
   });
 
   try {
-    const siteName = config.site.siteName || 'Sasthik';
-    const siteLink = config.origin || 'https://sasthik.com';
+    const siteName = config.site.siteName || 'susthio';
+    const siteLink = config.origin || 'https://susthio.com';
     const appointmentNumber = newAppointment.serialNumber;
     const doctorName = newAppointment.doctor.name || 'your doctor'; // fallback if not provided
 
@@ -575,141 +693,59 @@ Serial: ${appointmentNumber}. Details: ${siteLink}/auth/login`;
   return newAppointment;
 };
 
-const createAppointmentForRegisteredUser = async (
-  userId: string,
-  payload: IAppointmentCreateInput,
-): Promise<IAppointmentResponse> => {
-  // ১. ইউজার এবং তার রোল চেক
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, role: true, name: true },
-  });
-
-  if (!user || user.role !== 'PATIENT') {
-    throw new ApiError(
-      httpStatus.FORBIDDEN,
-      'শুধুমাত্র রোগীরাই (Patient) অ্যাপয়েন্টমেন্ট বুক করতে পারবেন।',
-    );
-  }
-
-  // ২. তারিখ নির্ধারণ (পেলোড থেকে আসা তারিখ ব্যবহার করা উচিত, শুধু বর্তমান সময় নয়)
-  const appointmentDate = new Date(payload.appointmentDate);
-  const startOfDay = new Date(appointmentDate);
-  startOfDay.setUTCHours(0, 0, 0, 0);
-
-  const endOfDay = new Date(appointmentDate);
-  endOfDay.setUTCHours(23, 59, 59, 999);
-
-  // ৩. ডুপ্লিকেট বুকিং চেক (একই দিন, একই ডাক্তার, একই পেশেন্ট)
-  const existingAppointment = await prisma.appointment.findFirst({
-    where: {
-      patientId: userId,
-      doctorId: payload.doctorId,
-      appointmentDate: {
-        gte: startOfDay,
-        lte: endOfDay,
-      },
-      status: 'PENDING',
-    },
-  });
-
-  if (existingAppointment?.patientName === payload.patientName) {
-    throw new ApiError(
-      httpStatus.CONFLICT,
-      'এই চিকিৎসকের সাথে আপনার এই তারিখে ইতিমধ্যে একটি অ্যাপয়েন্টমেন্ট বুক করা আছে।',
-    );
-  }
-
-  // ৪. ট্রানজ্যাকশন ব্যবহার করে অ্যাপয়েন্টমেন্ট তৈরি
-  const result = await prisma.$transaction(async (tx) => {
-    return await tx.appointment.create({
-      data: {
-        patientName: payload.patientName || user.name, // ইউজার নাম না দিলে প্রোফাইল নাম নিবে
-        ptAge: String(payload.ptAge),
-        phoneNumber: payload.phoneNumber,
-        address: payload.address || null,
-        appointmentDate: startOfDay,
-        status: 'PENDING',
-        code: generateAppointmentCode(6),
-        note: payload.note || null,
-        doctor: { connect: { id: payload.doctorId } },
-        clinic: { connect: { id: payload.clinicId } },
-        patient: { connect: { id: userId } },
-        discount: payload.discount,
-      },
-      include: {
-        doctor: { select: { name: true } },
-        clinic: { select: { name: true } },
-        patient: { select: { name: true } },
-      },
-    });
-  });
-
-  // ৫. নোটিফিকেশন (সাইলেন্টলি রান করবে)
-  if (result) {
-    sendPushNotification(
-      result.clinicId,
-      'নতুন বুকিং! 🏥',
-      `${result.patientName} একটি নতুন অ্যাপয়েন্টমেন্ট বুক করেছেন`,
-    ).catch((err) => console.error('Notification Error:', err));
-  }
-
-  return result as unknown as IAppointmentResponse;
-};
 // Update Appointment Reason/Date (Update)
 const updateAppointment = async (
   id: string,
-  data: Partial<IAppointmentUpdateInput>, // type-safe
+  payload: Partial<IAppointmentUpdateInput>,
 ): Promise<IAppointmentResponse> => {
-  // 1️⃣ Validate ID
   if (!id) throw new ApiError(httpStatus.BAD_REQUEST, 'Appointment ID is required');
 
-  // 2️⃣ Find existing appointment
-  const appointment = await prisma.appointment.findUnique({
+  // ১. বর্তমান ডাটা চেক করা
+  const isExist = await prisma.appointment.findUnique({
     where: { id },
-    include: appointmentPopulate,
   });
 
-  if (!appointment) {
+  if (!isExist) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Appointment not found');
   }
 
-  // 3️⃣ Check if SMS needs to be sent
-  const shouldSendSMS = appointment.status === 'PENDING' && data.status === 'SCHEDULED';
-
-  // 4️⃣ Update appointment
-  const updatedAppointment = await prisma.appointment.update({
+  // ৪. ডাটা আপডেট করা
+  const updatedResult = await prisma.appointment.update({
     where: { id },
-    data,
-    include: appointmentPopulate,
+    data: payload,
+    include: {
+      doctor: { select: { name: true } },
+      clinic: { select: { name: true } },
+      membership: { include: { clinic: { select: { name: true } } } },
+    },
   });
 
-  // 5️⃣ Send SMS if required (async, but safe)
-  if (shouldSendSMS && updatedAppointment.phoneNumber) {
-    try {
-      const siteName = config.site.siteName || 'Sasthik';
-      const siteLink = config.origin || 'https://sasthik.com';
-      const doctorName = updatedAppointment.doctor?.name || 'your doctor';
-      const serialNumber = updatedAppointment.serialNumber ?? 'N/A';
+  // ৫. SMS নোটিফিকেশন লজিক
+  const shouldSendSMS = isExist.status === 'PENDING' && updatedResult.status === 'SCHEDULED';
 
-      const welcomeMessage = `${siteName}: Your appointment with Dr. ${doctorName} is confirmed.
-Serial: ${serialNumber}. Details: ${siteLink}/auth/login`;
+  if (shouldSendSMS && updatedResult.phoneNumber) {
+    // সাইলেন্টলি রান করবে যাতে ইউজার রেসপন্স স্লো না হয়
+    (async () => {
+      try {
+        const doctorName = updatedResult.doctor?.name || 'Doctor';
+        const serial = updatedResult.serialNumber || 'Confirming';
+        const message = `SusthiO: Your appointment with Dr. ${doctorName} is confirmed. Serial: ${serial}. Check details on our website.`;
 
-      await sendSMS(updatedAppointment.phoneNumber, welcomeMessage);
-    } catch (error) {
-      console.error('Failed to send appointment SMS:', error);
-    }
+        // await sendSMS(updatedResult.phoneNumber, message);
+      } catch (error) {
+        console.error('SMS Error:', error);
+      }
+    })();
   }
 
-  // 6️⃣ Return updated appointment
-  return updatedAppointment as IAppointmentResponse;
+  return updatedResult as unknown as IAppointmentResponse;
 };
 
 export const AppointmentService = {
   getMyAppointments,
-  sendBookingOtp,
+  getManagerAreaAppointments,
   exportDailyPdf,
-  createAppointmentForRegisteredUser,
+
   createAppointment,
   createAppointmentForAdmin,
   updateAppointment,

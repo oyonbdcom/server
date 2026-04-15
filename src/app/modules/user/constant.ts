@@ -6,7 +6,6 @@ export const USER_SELECT = {
   image: true,
   role: true,
   deactivate: true,
-  lastLoginAt: true,
   createdAt: true,
   updatedAt: true,
 };

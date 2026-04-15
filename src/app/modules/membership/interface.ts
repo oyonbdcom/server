@@ -1,6 +1,6 @@
 import z from 'zod';
 import { IUserResponse } from '../user/interface';
-import { createClinicMembershipSchema, updateClinicMembershipSchema } from './zodValidation';
+import { createMembershipSchema, updateClinicMembershipSchema } from './zodValidation';
 
 export interface IMemberDoctor {
   id: string;
@@ -14,7 +14,7 @@ export interface IMemberDoctor {
 export interface IMembershipResponse {
   id: string;
   fee: number;
-  maxAppointments: number;
+
   discount: number;
   createdAt: Date;
   updatedAt: Date;
@@ -22,7 +22,7 @@ export interface IMembershipResponse {
   clinic?: any;
   schedules?: any[];
 }
-export type CreateMembershipInput = z.infer<typeof createClinicMembershipSchema>['body'];
+export type CreateMembershipInput = z.infer<typeof createMembershipSchema>['body'];
 export type UpdateMembershipInput = z.infer<typeof updateClinicMembershipSchema>['body'];
 
 export const MembershipFilterableFields = ['joinAt'];
