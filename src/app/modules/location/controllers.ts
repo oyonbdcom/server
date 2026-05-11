@@ -64,7 +64,11 @@ const createArea = catchAsync(async (req: Request, res: Response) => {
 });
 
 const getAllAreas = catchAsync(async (req: Request, res: Response) => {
-  const result = await SetupService.getAllAreas();
+  const { district } = req.query;
+
+  const result = await SetupService.getAllAreas({
+    district: district as string,
+  });
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

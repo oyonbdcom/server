@@ -7,12 +7,14 @@ import { ClinicRoutes } from '../modules/clinic/routes';
 import { AppointmentsRoutes } from '../modules/appointment/routes';
 import { DoctorRoutes } from '../modules/doctor/routes';
 
+import { FeedbackRoutes } from '../modules/feedback/routes';
 import { SetupRoutes } from '../modules/location/routes';
 import { MedicalHistoryRoutes } from '../modules/medical-history/routes';
 import { DeviceTokenRoutes } from '../modules/notification/routes';
 import { PatientRoutes } from '../modules/patient/routes';
 import { ReviewsRoutes } from '../modules/review/routes';
 import { ScheduleRoutes } from '../modules/schedule/routes';
+import { StaffRoutes } from '../modules/staff/routes';
 import { SummaryRoutes } from '../modules/summary/routes';
 import { UploadRoutes } from '../modules/upload/route';
 import { UserRoutes } from '../modules/user/routes';
@@ -50,12 +52,20 @@ const modulesRoute = [
     route: ReviewsRoutes,
   },
   {
+    path: '/feedbacks',
+    route: FeedbackRoutes,
+  },
+  {
     path: '/medical-records',
     route: MedicalHistoryRoutes,
   },
   {
     path: '/clinics',
     route: ClinicRoutes,
+  },
+  {
+    path: '/staff',
+    route: StaffRoutes,
   },
 
   {

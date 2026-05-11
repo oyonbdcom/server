@@ -6,7 +6,7 @@ import { catchAsync } from '../../../shared/catchAsync';
 import { sendResponse } from '../../../shared/sendResponse';
 import ApiError from '../../../utils/apiError';
 import { ClinicFilterableFields } from './constant';
-import { IClinicResponse, IClinicStats } from './interface';
+import { IClinicResponse, IDiagnosticManagerStats } from './interface';
 import { ClinicService } from './service';
 
 const createClinic = catchAsync(async (req, res) => {
@@ -32,47 +32,56 @@ const getClinics = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Clinics retrieved successfully',
-    meta: result?.meta || null,
+    meta: result?.meta || undefined,
     data: result?.data || null,
   });
 });
 
-const getClinicsForManager = catchAsync(async (req, res) => {
+const getAllAreaClinics = catchAsync(async (req, res) => {
   const paginationOptions = pick(req.query, paginationFields);
   const filter = pick(req.query, ClinicFilterableFields);
 
   const userId = (req as any).user.id;
 
-  const result = await ClinicService.getClinicsForManager(filter, paginationOptions, userId);
+  const result = await ClinicService.getAllAreaClinics(filter, paginationOptions, userId);
 
   sendResponse<IClinicResponse[]>(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'আপনার এরিয়ার ক্লিনিকগুলো সফলভাবে আনা হয়েছে',
-    meta: result?.meta || null,
+    meta: result?.meta || undefined,
     data: result?.data || null,
   });
 });
 
-const getAllClinicsForManager = catchAsync(async (req, res) => {
+const createStaff = catchAsync(async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
+    }
+
+    const result = await ClinicService.createStaff(userId, req.body);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      success: true,
+      message: 'স্টাফ তৈরি হয়েছে',
+      data: result,
+    });
+  } catch (error) {
+    console.error('CREATE STAFF ERROR:', error); // 🔥 THIS IS KEY
+    throw error;
+  }
+});
+const getDiagnosticManagerStats = catchAsync(async (req, res) => {
   const userId = req.user?.id;
   if (!userId) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
-  const result = await ClinicService.getAllClinicsForManager(userId);
+  const result = await ClinicService.getDiagnosticManagerStats(userId);
 
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'ক্লিনিক লিস্ট সফলভাবে পাওয়া গেছে',
-    data: result,
-  });
-});
-
-const getClinicStats = catchAsync(async (req, res) => {
-  const result = await ClinicService.getClinicStats();
-
-  sendResponse<IClinicStats>(res, {
+  sendResponse<IDiagnosticManagerStats>(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Clinic statics retrieved successfully',
@@ -80,19 +89,21 @@ const getClinicStats = catchAsync(async (req, res) => {
   });
 });
 
-// const getClinicById = catchAsync(async (req, res) => {
-//   const slug = req.params.slug as string;
+const getSingleClinic = catchAsync(async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
+  }
+  const result = await ClinicService.getSingleClinic(userId);
 
-//   const result = await ClinicService.getClinicById(slug);
+  sendResponse<IClinicResponse>(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Clinics retrieved successfully',
 
-//   sendResponse<IClinicResponse>(res, {
-//     statusCode: httpStatus.OK,
-//     success: true,
-//     message: 'Clinics retrieved successfully',
-
-//     data: result,
-//   });
-// });
+    data: result,
+  });
+});
 
 // update
 const updateClinic = catchAsync(async (req, res) => {
@@ -126,9 +137,11 @@ const deleteClinic = catchAsync(async (req, res) => {
 export const ClinicController = {
   createClinic,
   getClinics,
-  getClinicStats,
+  createStaff,
+  getDiagnosticManagerStats,
   deleteClinic,
-  getAllClinicsForManager,
-  getClinicsForManager,
+  getSingleClinic,
+
+  getAllAreaClinics,
   updateClinic,
 };

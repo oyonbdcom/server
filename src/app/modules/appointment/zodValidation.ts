@@ -23,7 +23,6 @@ export const CreateAppointmentSchema = z.object({
 
 export const UpdateAppointmentSchema = z.object({
   body: z.object({
-    times: z.string(),
     serialNumber: z.number(),
     status: z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED', 'PENDING', 'RESCHEDULED']).optional(),
   }),

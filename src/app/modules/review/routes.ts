@@ -14,15 +14,22 @@ router.post(
   ReviewsController.createReviews,
 );
 router.post(
+  '/feedback',
+  protect,
+  // zodValidate(ReviewZodValidation.createFeedbackSchema),
+  ReviewsController.createFeedback,
+);
+router.get('/feedbacks', ReviewsController.getFeedbacks);
+router.post(
   '/:id/reply',
   protect,
-  restrictTo('ADMIN', 'CLINIC', 'DOCTOR', 'MANAGER'),
+  restrictTo(UserRole?.ADMIN, UserRole?.DIAGNOSTIC_MANAGER, UserRole?.AREA_MANAGER),
   ReviewsController.replyToReview,
 );
 router.get(
   '/manager-area-reviews',
   protect,
-  restrictTo(UserRole.MANAGER),
+  restrictTo(UserRole.AREA_MANAGER),
   ReviewsController.getReviewsByManagerArea,
 );
 // router.get('/', protect, ReviewsController.getAllReviews);
@@ -33,7 +40,7 @@ router.get('/:doctorId', ReviewsController.getSingleTargetReviews);
 router.patch(
   '/:reviewId',
   protect,
-  restrictTo('ADMIN', 'PATIENT', 'MANAGER'),
+  restrictTo(UserRole?.ADMIN, UserRole?.PATIENT, UserRole?.AREA_MANAGER),
   zodValidate(ReviewZodValidation.updateReviewSchema),
   ReviewsController.updateReview,
 );
@@ -41,7 +48,7 @@ router.patch(
 router.delete(
   '/:reviewId',
   protect,
-  restrictTo('ADMIN', 'PATIENT', 'CLINIC', 'MANAGER'),
+  restrictTo(UserRole?.ADMIN, UserRole?.PATIENT, UserRole?.AREA_MANAGER),
   ReviewsController.deleteReview,
 );
 

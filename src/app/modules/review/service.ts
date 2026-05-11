@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import httpStatus from 'http-status';
 import { JwtPayload } from 'jsonwebtoken';
 import { IOptions, paginationCalculator } from '../../../helper/pagination';
@@ -6,7 +6,12 @@ import { IGenericResponse } from '../../../interface/common';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
 
-import { CreateReviewInput, IReviewResponse, UpdateReviewInput } from './interface';
+import {
+  CreateReviewInput,
+  IFeedbackResponse,
+  IReviewResponse,
+  UpdateReviewInput,
+} from './interface';
 import { recallRating } from './utils copy';
 
 const createReview = async (
@@ -23,6 +28,9 @@ const createReview = async (
 
   if (!user) {
     throw new ApiError(httpStatus.NOT_FOUND, 'User not found.');
+  }
+  if (!doctorId) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'doctorId not found.');
   }
 
   // Security: শুধুমাত্র PATIENT রা রিভিউ দিতে পারবে
@@ -96,6 +104,74 @@ const createReview = async (
   return result as unknown as IReviewResponse;
 };
 
+// system feedback
+const createFeedback = async (
+  userId: string,
+  payload: any,
+): Promise<IFeedbackResponse | undefined> => {
+  const { rating, comment } = payload;
+
+  // 1️⃣ USER CHECK
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, name: true, image: true },
+  });
+
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'User not found.');
+  }
+
+  // 🔐 Only PATIENT allowed
+  if (user.role !== 'PATIENT') {
+    throw new ApiError(httpStatus.FORBIDDEN, 'Access Denied: Only Patients can submit feedback.');
+  }
+
+  // 2️⃣ DUPLICATE CHECK (if @@unique([patientId]) used)
+  const existingFeedback = await prisma.feedback.findUnique({
+    where: {
+      patientId: user.id,
+    },
+  });
+
+  if (existingFeedback) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'You have already submitted feedback.');
+  }
+
+  // 3️⃣ CREATE FEEDBACK
+  const result = await prisma.feedback.create({
+    data: {
+      rating,
+      comment,
+      status: 'PENDING', // admin approve করবে
+      patient: {
+        connect: { id: user.id },
+      },
+    },
+    include: {
+      patient: {
+        select: {
+          id: true,
+          name: true,
+          image: true,
+          patient: {
+            select: {
+              gender: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return result as unknown as IFeedbackResponse;
+};
+const getFeedbacks = async () => {
+  const result = await prisma.feedback.findMany({});
+
+  return result;
+};
+
+// doctor review replay
 const replyToReview = async (reviewId: string, userId: string, content: string) => {
   const review = await prisma.review.findUnique({
     where: { id: reviewId },
@@ -134,93 +210,6 @@ const replyToReview = async (reviewId: string, userId: string, content: string) 
   return result;
 };
 
-// const getAllReviews = async (
-//   user: JwtPayload,
-//   filter: {
-//     searchTerm?: string;
-//     rating?: string | number;
-//     targetType?: 'DOCTOR' | 'CLINIC';
-//     status?: ReviewStatus;
-//   },
-//   options: IOptions,
-// ): Promise<IGenericResponse<IReviewResponse[]>> => {
-//   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
-//   const { searchTerm, rating, targetType, status } = filter;
-
-//   const andConditions: Prisma.ReviewWhereInput[] = [];
-
-//   // --- 🛡️ ROLE-BASED RESTRICTION ---
-//   if (user.role === 'ADMIN') {
-//     // Admin can see everything, but if they chose a targetType filter, apply it
-//     if (targetType) {
-//       andConditions.push({ targetType });
-//     }
-//   } else if (user.role === 'DOCTOR' || user.role === 'CLINIC') {
-//     // Doctors and Clinics are LOCKED to their own reviews
-//     // We ignore the targetType filter from the user and force their own role/id
-//     andConditions.push({
-//       targetId: user.id,
-//       targetType: user.role as 'DOCTOR' | 'CLINIC',
-//     });
-//   } else {
-//     // If a Patient or other role tries to access this, return empty or throw error
-//     throw new ApiError(httpStatus.FORBIDDEN, "You don't have access to these reviews");
-//   }
-
-//   // --- 🔍 REMAINING FILTERS ---
-//   if (rating && rating !== 'all') {
-//     andConditions.push({ rating: Number(rating) });
-//   }
-
-//   if (status) {
-//     andConditions.push({ status: status as ReviewStatus });
-//   }
-
-//   if (searchTerm) {
-//     andConditions.push({
-//       OR: [
-//         { comment: { contains: searchTerm, mode: 'insensitive' } },
-//         { reviewer: { name: { contains: searchTerm, mode: 'insensitive' } } },
-//       ],
-//     });
-//   }
-
-//   const whereCondition: Prisma.ReviewWhereInput =
-//     andConditions.length > 0 ? { AND: andConditions } : {};
-
-//   // --- 📊 DATA FETCHING ---
-//   const [reviews, total] = await Promise.all([
-//     prisma.review.findMany({
-//       where: whereCondition,
-//       skip,
-//       take: limit,
-//       orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
-//       select: {
-//         id: true,
-//         rating: true,
-//         comment: true,
-//         targetType: true,
-//         createdAt: true,
-//         status: true,
-//         reviewer: {
-//           select: {
-//             name: true,
-//             image: true,
-//             id: true,
-//           },
-//         },
-//         target: { select: { name: true, image: true } },
-//       },
-//     }),
-//     prisma.review.count({ where: whereCondition }),
-//   ]);
-//   const totalPage = Math.ceil(total / limit);
-
-//   return {
-//     meta: { page, limit, total, totalPage },
-//     data: reviews as unknown as IReviewResponse[],
-//   };
-// };
 const getSingleTargetReviews = async (
   doctorId: string,
 
@@ -430,7 +419,7 @@ const updateReview = async (
     }
 
     // ৩. RBAC: শুধুমাত্র রিভিউ দাতা বা এডমিন আপডেট করতে পারবে
-    if (user.role !== 'MANAGER' && user.id !== existing.reviewerId) {
+    if (user.role !== UserRole?.AREA_MANAGER && user.id !== existing.reviewerId) {
       throw new ApiError(httpStatus.FORBIDDEN, 'Unauthorized to update this review');
     }
 
@@ -478,7 +467,8 @@ const deleteReview = async (reviewId: string, user: JwtPayload) => {
 export const ReviewsService = {
   replyToReview,
   createReview,
-
+  getFeedbacks,
+  createFeedback,
   getSingleTargetReviews,
   updateReview,
   deleteReview,

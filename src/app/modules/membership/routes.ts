@@ -11,7 +11,7 @@ const router = express.Router();
 router.get(
   '/my-doctors',
   protect,
-  restrictTo('CLINIC'),
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER),
   MembershipController.getMyDoctors, // আপনার কন্ট্রোলারের সেই নতুন মেথড
 );
 
@@ -19,14 +19,14 @@ router.get(
 router.get(
   '/',
   protect,
-  restrictTo(UserRole.CLINIC, UserRole.MANAGER),
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.AREA_MANAGER),
   MembershipController.getClinicMemberships,
 );
 
 router.post(
   '/',
   protect,
-  restrictTo(UserRole.MANAGER),
+  restrictTo(UserRole.AREA_MANAGER, UserRole.DIAGNOSTIC_MANAGER),
   zodValidate(ClinicMembershipZodValidation.createMembershipSchema),
   MembershipController.createMembership,
 );
@@ -34,14 +34,14 @@ router.post(
 router.patch(
   '/:membershipId',
   protect,
-  restrictTo('CLINIC', UserRole?.MANAGER),
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.AREA_MANAGER),
   MembershipController.updateMemberships,
 );
 
 router.delete(
   '/:membershipId',
   protect,
-  restrictTo('CLINIC', UserRole?.MANAGER),
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.AREA_MANAGER),
   MembershipController.deleteMembership,
 );
 

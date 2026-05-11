@@ -5,7 +5,7 @@ import pick from '../../../helper/pick';
 import { catchAsync } from '../../../shared/catchAsync';
 import { sendResponse } from '../../../shared/sendResponse';
 import ApiError from '../../../utils/apiError';
-import { IReviewResponse, ReviewFilterableFields } from './interface';
+import { IFeedbackResponse, IReviewResponse, ReviewFilterableFields } from './interface';
 import { ReviewsService } from './service';
 
 // ======================================================
@@ -21,6 +21,36 @@ const createReviews = catchAsync(async (req, res) => {
     statusCode: httpStatus.CREATED,
     success: true,
     message: ' review created successfully',
+    data: result,
+  });
+});
+const createFeedback = catchAsync(async (req, res) => {
+  const user = req.user;
+
+  // 🔐 Auth check
+  if (!user) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
+  }
+
+  // 🔥 Service call
+  const result = await ReviewsService.createFeedback(user.id, req.body);
+
+  // ✅ Response
+  sendResponse<IFeedbackResponse>(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: 'Feedback submitted successfully',
+    data: result,
+  });
+});
+
+const getFeedbacks = catchAsync(async (req, res) => {
+  const result = await ReviewsService.getFeedbacks();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Feedback fetched successfully',
     data: result,
   });
 });
@@ -84,6 +114,7 @@ const getSingleTargetReviews = catchAsync(async (req, res) => {
     data: result.data,
   });
 });
+
 const getReviewsByManagerArea = catchAsync(async (req, res) => {
   const user = req.user; // JWT থেকে পাওয়া ম্যানেজার তথ্য
   if (!user) {
@@ -162,9 +193,10 @@ const deleteReview = catchAsync(async (req, res) => {
 export const ReviewsController = {
   replyToReview,
   createReviews,
-
+  createFeedback,
   getSingleTargetReviews,
   updateReview,
+  getFeedbacks,
   deleteReview,
   getReviewsByManagerArea,
 };

@@ -6,27 +6,30 @@ export const appointmentPopulate = {
   doctor: {
     select: {
       id: true,
-      name: true,
-      image: true,
+      user: {
+        select: { name: true, image: true, id: true },
+      },
 
-      doctor: { select: { department: true, specialization: true } },
+      department: true,
+      specialization: true,
     },
   },
   patient: {
     select: {
       id: true,
-      name: true,
-      image: true,
-
-      phoneNumber: true,
+      user: {
+        select: { name: true, image: true, id: true, phoneNumber: true },
+      },
     },
   },
   clinic: {
     select: {
       id: true,
-      name: true,
-      image: true,
-      clinic: { select: { address: true, area: true } }, // Profile info
+      user: {
+        select: { name: true, image: true, id: true },
+      },
+      address: true,
+      area: true, // Profile info
     },
   },
 

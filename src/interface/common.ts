@@ -10,7 +10,7 @@ export interface IGenericErrorResponse {
 }
 
 export type IGenericResponse<T, N = Record<string, unknown>> = {
-  meta: {
+  meta?: {
     page: number;
     limit: number;
     total: number;

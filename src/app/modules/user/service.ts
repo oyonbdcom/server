@@ -140,16 +140,14 @@ const getAllManagers = async (
     where: whereCondition,
     skip,
     take: limit,
-    orderBy:
-      sortBy === 'name'
-        ? { user: { name: sortOrder } } // যদি ইউজার নেম দিয়ে সর্ট করতে চান
-        : { createdAt: sortOrder },
+    orderBy: sortBy === 'name' ? { user: { name: sortOrder } } : { createdAt: sortOrder },
     include: {
       user: {
         select: {
           id: true,
           name: true,
           image: true,
+          phoneNumber: true,
           deactivate: true,
         },
       },
@@ -237,7 +235,7 @@ const updateUserRole = async (
     // যদি রোল ম্যানেজার থাকে অথবা নতুন করে ম্যানেজার করা হয়
     const currentRole = payload.role || isUserExist.role;
 
-    if (currentRole === 'MANAGER' && payload.assignedAreaId) {
+    if (currentRole === 'AREA_MANAGER' && payload.assignedAreaId) {
       await tx.manager.upsert({
         where: { userId: id },
         update: { areaId: payload.assignedAreaId },
@@ -246,7 +244,7 @@ const updateUserRole = async (
           areaId: payload.assignedAreaId,
         },
       });
-    } else if (payload.role && payload.role !== 'MANAGER') {
+    } else if (payload.role && payload.role !== 'AREA_MANAGER') {
       // যদি রোল পরিবর্তন করে অন্য কিছু দেওয়া হয়, তবে ম্যানেজার ডাটা রিমুভ করা
       const managerExist = await tx.manager.findUnique({ where: { userId: id } });
       if (managerExist) {

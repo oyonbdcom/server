@@ -7,14 +7,19 @@ export const CLINIC_SELECT = {
   address: true,
   slug: true,
 
+  createdAt: true,
+  updatedAt: true,
   user: {
     select: {
       id: true,
       name: true,
       phoneNumber: true,
-
+      role: true,
+      isPhoneVerified: true,
       deactivate: true,
       image: true,
+      createdAt: true,
+      updatedAt: true,
     },
   },
 
@@ -23,7 +28,7 @@ export const CLINIC_SELECT = {
       id: true,
       name: true,
       slug: true,
-
+      districtId: true,
       district: {
         select: {
           id: true,

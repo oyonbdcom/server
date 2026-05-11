@@ -8,7 +8,7 @@ const router = express.Router();
 router.get(
   '/manager',
   protect,
-  restrictTo(UserRole.MANAGER),
+  restrictTo(UserRole.AREA_MANAGER),
   AppointmentsController.getManagerSummary,
 );
 

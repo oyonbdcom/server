@@ -28,17 +28,6 @@ export interface IClinicResponse {
   updatedAt: string;
 }
 
-export interface IAreaClinicResponse {
-  id: string;
-
-  name: string;
-  slug: string;
-  address: string;
-  city: string;
-  district: string;
-  website?: string;
-}
-
 export type ICreateClinicRequest = z.infer<typeof createClinicSchema>['body'];
 
 export type IUpdateClinicRequest = z.infer<typeof updateClinicSchema>['body'];

@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { Prisma } from '@prisma/client';
 import httpStatus from 'http-status';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
@@ -69,14 +70,30 @@ const createArea = async (data: { name: string; slug: string; districtId: string
   return result;
 };
 
-const getAllAreas = async () => {
+const getAllAreas = async (filters?: { district?: string }) => {
+  const where: Prisma.AreaWhereInput = {};
+
+  // ✅ optional filter
+  if (filters?.district) {
+    where.district = {
+      slug: filters.district,
+    };
+  }
+
   const result = await prisma.area.findMany({
-    include: { district: { select: { name: true } } },
-    orderBy: { name: 'asc' },
+    where,
+    include: {
+      district: {
+        select: { name: true },
+      },
+    },
+    orderBy: {
+      name: 'asc',
+    },
   });
+
   return result;
 };
-
 const updateArea = async (
   id: string,
   payload: Partial<{ name: string; slug: string; districtId: string }>,

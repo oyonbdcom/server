@@ -39,9 +39,7 @@ export const SummaryService = {
     const totalAppointments = await prisma.appointment.count({
       where: {
         clinic: {
-          clinic: {
-            areaId,
-          },
+          areaId,
         },
       },
     });
@@ -50,9 +48,7 @@ export const SummaryService = {
       where: {
         status: 'COMPLETED',
         clinic: {
-          clinic: {
-            areaId,
-          },
+          areaId,
         },
       },
     });
@@ -61,9 +57,7 @@ export const SummaryService = {
       where: {
         status: 'PENDING',
         clinic: {
-          clinic: {
-            areaId,
-          },
+          areaId,
         },
       },
     });

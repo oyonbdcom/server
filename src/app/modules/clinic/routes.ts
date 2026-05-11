@@ -10,38 +10,50 @@ const router = express.Router();
 router.post(
   '/',
   protect,
-  restrictTo('ADMIN', 'MANAGER'),
+  restrictTo('ADMIN', UserRole.AREA_MANAGER),
   zodValidate(ClinicZodValidation.createClinicSchema),
   ClinicController.createClinic,
 );
+router.post(
+  '/staff',
+  protect,
+  restrictTo('ADMIN', UserRole.DIAGNOSTIC_MANAGER),
+  // zodValidate(ClinicZodValidation.createClinicSchema),
+  ClinicController.createStaff,
+);
 
 router.get('/', ClinicController.getClinics);
-router.get('/statistics', protect, restrictTo('ADMIN'), ClinicController.getClinicStats);
+router.get(
+  '/statistics',
+  protect,
+  restrictTo('ADMIN', UserRole.DIAGNOSTIC_MANAGER),
+  ClinicController.getDiagnosticManagerStats,
+);
 
 router.get(
   '/my-clinics',
   protect,
-  restrictTo(UserRole.MANAGER),
-  ClinicController.getClinicsForManager,
+  restrictTo(UserRole.AREA_MANAGER),
+  ClinicController.getAllAreaClinics,
 );
+router.get('/single', protect, ClinicController.getSingleClinic);
 router.get(
-  '/manager-all',
+  '/area-clinics',
   protect,
-  restrictTo(UserRole.MANAGER),
-  ClinicController.getAllClinicsForManager,
+  restrictTo(UserRole.AREA_MANAGER),
+  ClinicController.getAllAreaClinics,
 );
-// router.get('/:slug', ClinicController.getClinicById);
 router.patch(
   '/:clinicId',
   protect,
-  restrictTo('ADMIN', 'CLINIC', 'MANAGER'),
+  restrictTo('ADMIN', UserRole.DIAGNOSTIC_MANAGER, UserRole.AREA_MANAGER),
   ClinicController.updateClinic,
 );
 
 router.delete(
   '/:clinicId',
   protect,
-  restrictTo(UserRole.MANAGER, UserRole.ADMIN),
+  restrictTo(UserRole.AREA_MANAGER, UserRole.ADMIN),
   ClinicController.deleteClinic,
 );
 

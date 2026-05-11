@@ -16,15 +16,16 @@ router.post(
   AppointmentsController.createAppointment,
 );
 router.post(
-  '/admin',
-
-  zodValidate(AppointmentZodValidation.CreateAppointmentSchema),
-  AppointmentsController.createAppointmentForAdmin,
+  '/staff-apt-create',
+  protect,
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.STAFF),
+  // zodValidate(AppointmentZodValidation.CreateAppointmentSchema),
+  AppointmentsController.createAppointmentByDiagnosticStaff,
 );
 router.get(
   '/manager-appointments',
   protect,
-  restrictTo(UserRole.MANAGER),
+  restrictTo(UserRole.AREA_MANAGER),
   AppointmentsController.getManagerAreaAppointments,
 );
 
@@ -32,20 +33,20 @@ router.get(
 router.get(
   '/',
   protect,
-  restrictTo('CLINIC', 'ADMIN', 'PATIENT'),
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.ADMIN, UserRole.PATIENT, UserRole.AREA_MANAGER),
   AppointmentsController.getMyAppointments,
 );
 router.get('/export', protect, AppointmentsController.exportDoctorDailyPdf);
 router.get(
   '/:aptId',
   protect,
-  restrictTo('ADMIN', 'CLINIC'),
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.ADMIN),
   AppointmentsController.getMyAppointments,
 );
 router.patch(
   '/:aptId',
   protect,
-  restrictTo('ADMIN', 'CLINIC', 'MANAGER'),
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.ADMIN, UserRole.AREA_MANAGER),
   zodValidate(AppointmentZodValidation.UpdateAppointmentSchema),
   AppointmentsController.updateAppointment,
 );

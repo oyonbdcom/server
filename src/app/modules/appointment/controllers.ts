@@ -44,11 +44,17 @@ const createAppointment = catchAsync(async (req, res) => {
   });
 });
 
-const createAppointmentForAdmin = catchAsync(async (req, res) => {
+const createAppointmentByDiagnosticStaff = catchAsync(async (req, res) => {
   const appointmentData = req.body;
-
+  const userId = req.user?.id;
+  if (!userId) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
+  }
   // 2. Call service with both payload and existing user ID
-  const result = await AppointmentService.createAppointmentForAdmin(appointmentData);
+  const result = await AppointmentService.createAppointmentByDiagnosticStaff(
+    appointmentData,
+    userId,
+  );
 
   // 4. Send response including the appointment details and access token
   sendResponse(res, {
@@ -91,6 +97,7 @@ const getManagerAreaAppointments = catchAsync(async (req, res) => {
     message: 'এরিয়া অ্যাপয়েন্টমেন্ট সফলভাবে পাওয়া গেছে',
     meta: result.meta,
     data: result.data,
+    stats: result.stats,
   });
 });
 
@@ -137,7 +144,7 @@ const updateAppointment = catchAsync(async (req, res) => {
 
 export const AppointmentsController = {
   getMyAppointments,
-  createAppointmentForAdmin,
+  createAppointmentByDiagnosticStaff,
   getManagerAreaAppointments,
   createAppointment,
   updateAppointment,

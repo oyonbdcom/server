@@ -9,8 +9,8 @@ import ApiError from '../../../utils/apiError';
 import { CLINIC_SELECT, IClinicFilterRequest } from './constant';
 import {
   IClinicResponse,
-  IClinicStats,
   ICreateClinicRequest,
+  IDiagnosticManagerStats,
   IUpdateClinicRequest,
 } from './interface';
 
@@ -43,7 +43,6 @@ const createClinic = async (
   // ৪. ডাটাবেজে ক্লিনিক তৈরি (Transaction ব্যবহার করা নিরাপদ)
   const clinic = await prisma.clinic.create({
     data: {
-      name: clinicData.user.name,
       slug: clinicData.slug,
       address: clinicData.address,
 
@@ -58,7 +57,7 @@ const createClinic = async (
           name: clinicData.user.name,
           phoneNumber: clinicData.user.phoneNumber,
           password: hashedPassword,
-          role: UserRole.CLINIC,
+          role: UserRole.DIAGNOSTIC_MANAGER,
           image: clinicData.user.image,
           isDefaultPassword: !clinicData.user.password,
         },
@@ -92,7 +91,6 @@ const getClinics = async (
   if (searchTerm) {
     andConditions.push({
       OR: [
-        { name: { contains: searchTerm, mode: 'insensitive' } },
         { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
         { user: { phoneNumber: { contains: searchTerm, mode: 'insensitive' } } },
       ],
@@ -148,127 +146,427 @@ const getClinics = async (
     data: data as unknown as IClinicResponse[],
   };
 };
-const getClinicStats = async (): Promise<IClinicStats> => {
-  const [activeCount, inactiveCount] = await Promise.all([
-    // Count based on the 'active' boolean in Doctor model
-    prisma.clinic.count({
-      where: { user: { deactivate: false } },
-    }),
-    prisma.clinic.count({
-      where: { user: { deactivate: true } },
-    }),
 
-    // Count based on 'active' boolean being false
-  ]);
+const staffRoleLabels = {
+  COORDINATOR: 'কো-অর্ডিনেটর',
+  RECEPTIONIST: 'রিসেপশনিস্ট',
+  ASSISTANT: 'সহকারী',
+} as const;
+
+const getTodayRange = () => {
+  const today = new Date();
 
   return {
-    total: activeCount + inactiveCount,
-    active: activeCount,
-    inactive: inactiveCount,
+    startOfDay: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
+
+    endOfDay: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1),
   };
 };
 
-const getClinicsForManager = async (
+// create staff
+
+interface ICreateStaffPayload {
+  clinicId: string;
+  user: {
+    name: string;
+    phoneNumber: string;
+    password: string;
+    image?: string;
+  };
+  staffType: 'COORDINATOR' | 'RECEPTIONIST' | 'STAFF';
+  assignedDoctorId?: string;
+}
+
+const createStaff = async (userId: string, payload: ICreateStaffPayload) => {
+  console.log(payload);
+  const { user, staffType, assignedDoctorId } = payload;
+
+  const clinic = await prisma.clinic.findUnique({
+    where: {
+      userId,
+    },
+
+    select: {
+      id: true,
+      user: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!clinic) {
+    throw new Error('ক্লিনিক পাওয়া যায়নি');
+  }
+
+  const clinicId = clinic.id;
+
+  // 2. CHECK PHONE ALREADY EXISTS
+  const existingUser = await prisma.user.findUnique({
+    where: { phoneNumber: user.phoneNumber },
+  });
+
+  if (existingUser) {
+    throw new Error('এই ফোন নম্বর ইতিমধ্যে ব্যবহৃত হয়েছে');
+  }
+
+  // 3. HASH PASSWORD
+  const hashedPassword = await bcrypt.hash(user.password, 10);
+
+  // 4. CREATE USER + STAFF (TRANSACTION)
+  const result = await prisma.$transaction(async (tx) => {
+    // create user
+    const createdUser = await tx.user.create({
+      data: {
+        name: user.name,
+        phoneNumber: user.phoneNumber,
+        password: hashedPassword,
+        image: user.image,
+        role: 'STAFF',
+      },
+    });
+
+    // create staff
+    const staff = await tx.staff.create({
+      data: {
+        userId: createdUser.id,
+        clinicId,
+        staffType: 'RECEPTIONIST',
+        assignedDoctorId: assignedDoctorId || null,
+      },
+
+      include: {
+        user: true,
+        assignedDoctor: {
+          include: {
+            user: true,
+          },
+        },
+      },
+    });
+
+    return staff;
+  });
+
+  return result;
+};
+
+// manager dashboard stats
+const getDiagnosticManagerStats = async (userId: string): Promise<IDiagnosticManagerStats> => {
+  const { startOfDay, endOfDay } = getTodayRange();
+  const clinic = await prisma.clinic.findUnique({
+    where: {
+      userId,
+    },
+
+    select: {
+      id: true,
+      user: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!clinic) {
+    throw new Error('ক্লিনিক পাওয়া যায়নি');
+  }
+
+  const clinicId = clinic.id;
+  // COMMON APPOINTMENT FILTER
+  const appointmentClinicWhere = {
+    clinicId,
+  };
+
+  const [totalDoctors, todayAppointments, completedAppointments, totalStaffs, staffs] =
+    await Promise.all([
+      // TOTAL ACTIVE DOCTORS
+      prisma.membership.count({
+        where: {
+          clinicId,
+        },
+      }),
+
+      // TODAY APPOINTMENTS
+      prisma.appointment.count({
+        where: {
+          ...appointmentClinicWhere,
+
+          createdAt: {
+            gte: startOfDay,
+            lt: endOfDay,
+          },
+        },
+      }),
+
+      // COMPLETED APPOINTMENTS
+      prisma.appointment.count({
+        where: {
+          ...appointmentClinicWhere,
+          status: 'COMPLETED',
+        },
+      }),
+
+      // TOTAL STAFFS
+      prisma.staff.count({
+        where: {
+          clinicId,
+        },
+      }),
+
+      // STAFF ACTIVITIES
+      prisma.staff.findMany({
+        where: {
+          clinicId,
+        },
+
+        take: 5,
+
+        orderBy: {
+          createdAt: 'desc',
+        },
+
+        select: {
+          id: true,
+          staffType: true,
+
+          user: {
+            select: {
+              name: true,
+
+              _count: {
+                select: {
+                  createdAppointments: true,
+                },
+              },
+            },
+          },
+
+          assignedDoctor: {
+            select: {
+              user: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+  return {
+    totalDoctors,
+
+    todayAppointments,
+
+    completedAppointments,
+
+    totalStaffs,
+
+    staffActivities: staffs.map((staff) => ({
+      id: staff.id,
+
+      name: staff.user.name,
+
+      role: staffRoleLabels[staff.staffType] || 'স্টাফ',
+
+      assignedDoctor: staff.assignedDoctor?.user?.name || null,
+
+      totalBookings: staff.user._count.createdAppointments,
+    })),
+  };
+};
+
+const getSingleClinic = async (userId: string): Promise<IClinicResponse> => {
+  const clinic = await prisma.clinic.findUnique({
+    where: { userId },
+
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          phoneNumber: true,
+          image: true,
+          deactivate: true,
+        },
+      },
+
+      area: {
+        select: {
+          name: true,
+          id: true,
+          slug: true,
+          district: {
+            select: { name: true, slug: true, id: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!clinic) {
+    throw new ApiError(404, 'Clinic not found');
+  }
+
+  return clinic as unknown as IClinicResponse;
+};
+
+const getAllAreaClinics = async (
   filter: IClinicFilterRequest,
   options: IOptions,
   userId: string,
 ): Promise<IGenericResponse<IClinicResponse[]>> => {
-  const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
-  const { searchTerm, deactivate, minRating } = filter;
+  // =====================================================
+  // FILTERS
+  // =====================================================
 
-  const andConditions: Prisma.ClinicWhereInput[] = [];
+  const { searchTerm, deactivate } = filter;
+
+  // =====================================================
+  // MANAGER CHECK
+  // =====================================================
 
   const managerProfile = await prisma.manager.findUnique({
-    where: { userId: userId },
-    select: { areaId: true },
-  });
+    where: {
+      userId,
+    },
 
-  if (!managerProfile || !managerProfile.areaId) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
-  }
-
-  andConditions.push({
-    areaId: managerProfile.areaId,
-  });
-
-  // ৩. সার্চ টার্ম (নাম বা ফোন নম্বর দিয়ে খোঁজা)
-  if (searchTerm) {
-    andConditions.push({
-      OR: [
-        { name: { contains: searchTerm, mode: 'insensitive' } },
-        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { user: { phoneNumber: { contains: searchTerm, mode: 'insensitive' } } },
-      ],
-    });
-  }
-
-  // ৪. স্ট্যাটাস ফিল্টার
-  if (deactivate !== undefined) {
-    const isDeactivated = deactivate === 'true';
-    andConditions.push({
-      user: {
-        deactivate: isDeactivated,
-      },
-    });
-  }
-
-  const whereCondition: Prisma.ClinicWhereInput = { AND: andConditions };
-
-  // ডাটাবেজ কোয়েরি
-  const [data, total] = await Promise.all([
-    prisma.clinic.findMany({
-      where: whereCondition,
-      skip,
-      take: limit,
-      orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
-      select: CLINIC_SELECT,
-    }),
-    prisma.clinic.count({ where: whereCondition }),
-  ]);
-  const totalPage = Math.ceil(total / limit);
-  return {
-    meta: { page, limit, total, totalPage },
-    data: data as unknown as IClinicResponse[],
-  };
-};
-const getAllClinicsForManager = async (userId: string): Promise<IClinicResponse[]> => {
-  const manager = await prisma.manager.findUnique({
-    where: { userId },
     select: {
       areaId: true,
     },
   });
 
-  if (!manager?.areaId) {
-    throw new ApiError(403, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
+  if (!managerProfile?.areaId) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
   }
 
-  const clinics = await prisma.clinic.findMany({
-    where: {
-      areaId: manager.areaId,
-    },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      user: {
-        select: {
-          image: true,
-        },
-      },
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
+  // =====================================================
+  // WHERE CONDITIONS
+  // =====================================================
+
+  const andConditions: Prisma.ClinicWhereInput[] = [];
+
+  // Area Scope
+  andConditions.push({
+    areaId: managerProfile.areaId,
   });
 
-  // flatten response (optional but clean for frontend)
-  return clinics.map((c) => ({
-    id: c.id,
-    name: c.name,
-    image: c.user?.image || null,
-  })) as any;
+  // Search
+  if (searchTerm) {
+    andConditions.push({
+      OR: [
+        {
+          user: {
+            name: {
+              contains: searchTerm,
+              mode: 'insensitive',
+            },
+          },
+        },
+
+        {
+          user: {
+            phoneNumber: {
+              contains: searchTerm,
+              mode: 'insensitive',
+            },
+          },
+        },
+      ],
+    });
+  }
+
+  // Deactivate Filter
+  if (deactivate !== undefined) {
+    andConditions.push({
+      user: {
+        deactivate: deactivate === 'true',
+      },
+    });
+  }
+
+  const whereCondition: Prisma.ClinicWhereInput =
+    andConditions.length > 0
+      ? {
+          AND: andConditions,
+        }
+      : {};
+
+  // =====================================================
+  // OPTIONAL PAGINATION
+  // =====================================================
+
+  const shouldPaginate = !!options?.page && !!options?.limit;
+
+  let pagination: {
+    skip?: number;
+    take?: number;
+  } = {};
+
+  let meta:
+    | {
+        page: number;
+        limit: number;
+        total: number;
+        totalPage: number;
+      }
+    | undefined;
+
+  if (shouldPaginate) {
+    const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
+
+    pagination = {
+      skip,
+      take: limit,
+    };
+
+    const total = await prisma.clinic.count({
+      where: whereCondition,
+    });
+
+    meta = {
+      page,
+      limit,
+      total,
+      totalPage: Math.ceil(total / limit),
+    };
+  }
+
+  // =====================================================
+  // QUERY
+  // =====================================================
+
+  const clinics = await prisma.clinic.findMany({
+    where: whereCondition,
+
+    ...pagination,
+
+    orderBy:
+      options?.sortBy && options?.sortOrder
+        ? {
+            [options.sortBy]: options.sortOrder,
+          }
+        : {
+            createdAt: 'desc',
+          },
+
+    select: CLINIC_SELECT,
+  });
+
+  // =====================================================
+  // RETURN
+  // =====================================================
+
+  return {
+    meta,
+    data: clinics as unknown as IClinicResponse[],
+  };
 };
+
 const updateClinic = async (
   clinicId: string, // এটি মূলত Clinic টেবিলের ID
   clinicData: IUpdateClinicRequest,
@@ -300,11 +598,10 @@ const updateClinic = async (
   const updatedClinic = await prisma.clinic.update({
     where: { id: clinicId },
     data: {
-      name: clinicData.user?.name,
       slug: clinicData.slug,
       address: clinicData.address,
-
-      // নেস্টেড ইউজার আপডেট
+      website: clinicData?.website,
+      areaId: userData?.areaId,
       user: {
         update: userData,
       },
@@ -314,6 +611,7 @@ const updateClinic = async (
 
   return updatedClinic as unknown as IClinicResponse;
 };
+
 const deleteClinic = async (id: string, user: { id: string; role: string }): Promise<any> => {
   // ১. ক্লিনিক খুঁজে বের করা (area সহ)
   const clinicData = await prisma.clinic.findUnique({
@@ -363,9 +661,11 @@ const deleteClinic = async (id: string, user: { id: string; role: string }): Pro
 export const ClinicService = {
   createClinic,
   getClinics,
-  getAllClinicsForManager,
-  getClinicStats,
+  createStaff,
+  getSingleClinic,
+
+  getDiagnosticManagerStats,
   updateClinic,
-  getClinicsForManager,
+  getAllAreaClinics,
   deleteClinic,
 };

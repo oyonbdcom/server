@@ -133,7 +133,7 @@ const getDoctors = async (
     deactivate?: string;
     gender?: 'MALE' | 'FEMALE';
     myAreaOnly?: string;
-    membership: string;
+    membership?: string;
   },
   options: IOptions,
   userId?: string,
@@ -237,6 +237,7 @@ const getDoctors = async (
       },
     });
   }
+
   // ফাইনাল কন্ডিশন
   const whereCondition: Prisma.DoctorWhereInput =
     andConditions.length > 0 ? { AND: andConditions } : {};
@@ -260,26 +261,177 @@ const getDoctors = async (
     data: data as unknown as IDoctorResponse[],
   };
 };
-const getAllDoctorForManager = async (userId: string): Promise<any[]> => {
-  const manager = await prisma.manager.findUnique({
-    where: { userId },
-    select: {
-      areaId: true,
+
+const getAccessibleDoctors = async (userId: string): Promise<any[]> => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+
+    include: {
+      clinic: true,
+
+      manager: true,
+
+      staff: {
+        include: {
+          clinic: true,
+        },
+      },
     },
   });
 
-  if (!manager?.areaId) {
-    throw new ApiError(403, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
+  if (!user) {
+    throw new ApiError(404, 'ইউজার পাওয়া যায়নি');
   }
 
-  const doctors = await prisma.doctorArea.findMany({
+  // =========================
+  // AREA MANAGER
+  // =========================
+  if (user.role === 'AREA_MANAGER') {
+    const areaId = user.manager?.areaId;
+
+    if (!areaId) {
+      throw new ApiError(403, 'এরিয়া পাওয়া যায়নি');
+    }
+
+    const doctors = await prisma.doctorArea.findMany({
+      where: {
+        areaId,
+      },
+
+      select: {
+        doctor: {
+          select: {
+            id: true,
+            department: true,
+
+            user: {
+              select: {
+                name: true,
+                image: true,
+              },
+            },
+
+            // memberships: {
+            //   where: {
+            //     active: true,
+            //   },
+
+            //   select: {
+            //     id: true,
+            //     fee: true,
+            //     clinicId: true,
+
+            //     clinic: {
+            //       select: {
+            //         user: {
+            //           select: {
+            //             name: true,
+            //           },
+            //         },
+            //       },
+            //     },
+
+            //     schedules: true,
+            //   },
+            // },
+          },
+        },
+      },
+    });
+
+    return doctors.map((d) => ({
+      id: d.doctor.id,
+      name: d.doctor.user.name,
+      image: d.doctor.user.image,
+      department: d.doctor.department,
+
+      // memberships: d.doctor.memberships.map((m) => ({
+      //   membershipId: m.id,
+      //   clinicId: m.clinicId,
+      //   clinicName: m.clinic.user.name,
+      //   fee: m.fee,
+      //   schedules: m.schedules,
+      // })),
+    }));
+  }
+
+  // =========================
+  // DIAGNOSTIC MANAGER / STAFF
+  // =========================
+
+  let clinicId: string | null = null;
+
+  if (user.role === 'DIAGNOSTIC_MANAGER') {
+    clinicId = user.clinic?.id || null;
+  }
+
+  if (user.role === 'STAFF') {
+    clinicId = user.staff?.clinicId || null;
+  }
+
+  if (!clinicId) {
+    throw new ApiError(403, 'ক্লিনিক পাওয়া যায়নি');
+  }
+
+  // COORDINATOR
+  if (user.role === 'STAFF' && user.staff?.staffType === 'COORDINATOR') {
+    const memberships = await prisma.membership.findMany({
+      where: {
+        clinicId,
+        doctorId: user.staff.assignedDoctorId || '',
+        active: true,
+      },
+
+      select: {
+        id: true,
+        fee: true,
+
+        doctor: {
+          select: {
+            id: true,
+            department: true,
+
+            user: {
+              select: {
+                name: true,
+                image: true,
+              },
+            },
+          },
+        },
+
+        // schedules: true,
+      },
+    });
+
+    return memberships.map((m) => ({
+      // membershipId: m.id,
+      // fee: m.fee,
+      // // schedules: m.schedules,
+
+      id: m.doctor.id,
+      name: m.doctor.user.name,
+      image: m.doctor.user.image,
+      department: m.doctor.department,
+    }));
+  }
+
+  // RECEPTIONIST + DIAGNOSTIC_MANAGER
+  const memberships = await prisma.membership.findMany({
     where: {
-      areaId: manager.areaId,
+      clinicId,
+      active: true,
     },
+
     select: {
+      // id: true,
+      // fee: true,
+
       doctor: {
         select: {
           id: true,
+          department: true,
+
           user: {
             select: {
               name: true,
@@ -288,14 +440,20 @@ const getAllDoctorForManager = async (userId: string): Promise<any[]> => {
           },
         },
       },
+
+      // schedules: true,
     },
   });
 
-  // ✅ clean response
-  return doctors.map((d) => ({
-    id: d.doctor.id,
-    name: d.doctor.user?.name,
-    image: d.doctor.user?.image || null,
+  return memberships.map((m) => ({
+    // membershipId: m.id,
+    // fee: m.fee,
+    // schedules: m.schedules,
+
+    id: m.doctor.id,
+    name: m.doctor.user.name,
+    image: m.doctor.user.image,
+    department: m.doctor.department,
   }));
 };
 // const getDoctorStats = async (): Promise<IDoctorStats> => {
@@ -429,38 +587,32 @@ const updateDoctor = async (doctorId: string, payload: any): Promise<any> => {
 
   return updatedDoctor;
 };
-// const deleteDoctor = async (userId: string): Promise<IDoctorResponse> => {
-//   // 1️⃣ Check if doctor exists
-//   const existingDoctor = await prisma.doctor.findUnique({
-//     where: { id: userId },
-//     select: { id: true, userId: true },
-//   });
+const deleteDoctor = async (userId: string): Promise<IDoctorResponse> => {
+  // 1️⃣ Check if doctor exists
+  const existingDoctor = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
 
-//   if (!existingDoctor) {
-//     throw new ApiError(httpStatus.NOT_FOUND, 'Doctor not found');
-//   }
+  if (!existingDoctor) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Doctor not found');
+  }
 
-//   // 2️⃣ Soft delete: update user.active to false
-//   const doctor = await prisma.doctor.update({
-//     where: { userId },
-//     data: {
-//       user: {
+  // 2️⃣ Soft delete: update user.active to false
+  const doctor = await prisma.user.delete({
+    where: { id: userId },
+  });
 
-//       },
-//     },
-//     select: DOCTOR_SELECT,
-//   });
-
-//   return doctor as IDoctorResponse;
-// };
+  return doctor as any;
+};
 
 export const DoctorService = {
   createDoctor,
   getDoctors,
-
+  deleteDoctor,
   getDoctorById,
   updateDoctor,
-  getAllDoctorForManager,
+  getAccessibleDoctors,
   addDoctorToArea,
   removeDoctorFromArea,
 };

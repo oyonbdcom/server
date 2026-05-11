@@ -66,21 +66,21 @@ const getDoctors = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Doctors retrieved successfully',
-    meta: result?.meta || null,
+    meta: result?.meta || undefined,
     data: result?.data || null,
   });
 });
-const getAllDoctorForManager = catchAsync(async (req, res) => {
+const getAccessibleDoctors = catchAsync(async (req, res) => {
   const userId = req.user?.id;
   if (!userId) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
-  const result = await DoctorService.getAllDoctorForManager(userId);
+  const result = await DoctorService.getAccessibleDoctors(userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'ক্লিনিক লিস্ট সফলভাবে পাওয়া গেছে',
+    message: 'ডাক্তার লিস্ট সফলভাবে পাওয়া গেছে',
     data: result,
   });
 });
@@ -123,27 +123,28 @@ const updateDoctor = catchAsync(async (req, res) => {
   });
 });
 
-// const deleteDoctor = catchAsync(async (req, res) => {
-//   const { userId } = req?.params as { userId: string };
-//   if (!userId) {
-//     throw new ApiError(httpStatus.BAD_REQUEST, 'userid is required');
-//   }
-//   const deletedDoctor = await DoctorService.deleteDoctor(userId);
+const deleteDoctor = catchAsync(async (req, res) => {
+  const { userId } = req?.params as { userId: string };
+  if (!userId) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'userid is required');
+  }
+  const deletedDoctor = await DoctorService.deleteDoctor(userId);
 
-//   sendResponse<IDoctorResponse>(res, {
-//     statusCode: httpStatus.OK,
-//     success: true,
-//     message: 'Doctor deleted successfully',
-//     data: deletedDoctor,
-//   });
-// });
+  sendResponse<IDoctorResponse>(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Doctor deleted successfully',
+    data: deletedDoctor,
+  });
+});
 
 export const DoctorController = {
   createDoctor,
   getDoctors,
-  getAllDoctorForManager,
+  getAccessibleDoctors,
   getDoctorById,
   updateDoctor,
+  deleteDoctor,
   addDoctorToArea,
   removeDoctorFromArea,
 };

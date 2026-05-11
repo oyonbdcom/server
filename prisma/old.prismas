@@ -1,0 +1,486 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "postgresql"
+  url          = env("DATABASE_URL")
+  relationMode = "foreignKeys"
+}
+
+//////////////////////////
+// ENUMS
+//////////////////////////
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  CLINIC
+  DOCTOR
+  PATIENT
+}
+
+enum AppointmentStatus {
+  PENDING
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ReviewType {
+  DOCTOR
+  CLINIC
+  PLATFORM
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum SubscriptionPlan {
+  FREE
+  BASIC
+  PREMIUM
+  ENTERPRISE
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum FeatureKey {
+  PRIORITY_LISTING
+  ONLINE_BOOKING
+  ANALYTICS_DASHBOARD
+  MULTI_DOCTOR
+  CUSTOM_BRANDING
+}
+
+//////////////////////////
+// LOCATION
+//////////////////////////
+
+model District {
+  id    String @id @default(cuid())
+  name  String @unique
+  slug  String @unique
+  areas Area[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Area {
+  id         String   @id @default(cuid())
+  name       String
+  slug       String   @unique
+  districtId String
+  district   District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+
+  managers Manager[]
+  clinics  Clinic[]
+  doctors  DoctorArea[]
+  patient  Patient[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, districtId])
+}
+
+//////////////////////////
+// USER
+//////////////////////////
+
+model User {
+  id          String  @id @default(cuid())
+  name        String
+  phoneNumber String  @unique
+  password    String
+  image       String?
+
+  role UserRole @default(PATIENT)
+
+  isPhoneVerified Boolean @default(false)
+  deactivate      Boolean @default(false)
+
+  refreshToken      String?
+  isDefaultPassword Boolean @default(false)
+
+  doctor  Doctor?
+  patient Patient?
+  clinic  Clinic?
+  manager Manager?
+
+  createdMemberships Membership[] @relation("MembershipCreator")
+
+  appointmentsAsDoctor  Appointment[] @relation("DoctorAppointments")
+  appointmentsAsPatient Appointment[] @relation("PatientAppointments")
+  appointmentsAsClinic  Appointment[] @relation("ClinicAppointments")
+
+  reviewsWritten Review[]   @relation("UserReviews")
+  feedback       Feedback[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+}
+
+//////////////////////////
+// MANAGER
+//////////////////////////
+
+model Manager {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  areaId String
+  area   Area   @relation(fields: [areaId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//////////////////////////
+// DEPARTMENT
+//////////////////////////
+
+model Department {
+  id    String  @id @default(cuid())
+  name  String  @unique
+  slug  String  @unique
+  image String?
+
+  doctors Doctor[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//////////////////////////
+// DOCTOR
+//////////////////////////
+
+model Doctor {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  slug           String @unique
+  specialization String
+
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  website   String?
+  position  String?
+  education Json?
+  hospital  String? @db.Text
+
+  gender     Gender? @default(MALE)
+  experience Int     @default(0)
+
+  areas       DoctorArea[]
+  memberships Membership[]
+  reviews     Review[]
+
+  averageRating Float @default(0)
+  reviewsCount  Int   @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DoctorArea {
+  id       String @id @default(cuid())
+  doctorId String
+  areaId   String
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  area   Area   @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, areaId])
+}
+
+//////////////////////////
+// CLINIC (SAAS READY)
+//////////////////////////
+
+model Clinic {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name    String
+  slug    String @unique
+  address String
+
+  areaId String
+  area   Area   @relation(fields: [areaId], references: [id])
+
+  memberships Membership[]
+
+  // 🔥 SaaS
+  subscriptions Subscription[]
+  payments      Payment[]
+  usage         Usage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//////////////////////////
+// PLAN & FEATURE
+//////////////////////////
+
+model Plan {
+  id           String           @id @default(cuid())
+  name         SubscriptionPlan @unique
+  price        Int
+  billingCycle BillingCycle
+
+  description String?
+
+  features      PlanFeature[]
+  subscriptions Subscription[]
+
+  createdAt DateTime @default(now())
+}
+
+model Feature {
+  id   String     @id @default(cuid())
+  key  FeatureKey @unique
+  name String
+
+  plans PlanFeature[]
+}
+
+model PlanFeature {
+  id        String @id @default(cuid())
+  planId    String
+  featureId String
+
+  plan    Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  limit Int?
+
+  @@unique([planId, featureId])
+}
+
+//////////////////////////
+// SUBSCRIPTION
+//////////////////////////
+
+model Subscription {
+  id String @id @default(cuid())
+
+  clinicId String
+  clinic   Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  startDate DateTime @default(now())
+  endDate   DateTime
+
+  isActive  Boolean @default(true)
+  autoRenew Boolean @default(false)
+
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//////////////////////////
+// PAYMENT
+//////////////////////////
+
+model Payment {
+  id String @id @default(cuid())
+
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  clinicId String
+  clinic   Clinic @relation(fields: [clinicId], references: [id])
+
+  amount Int
+
+  status PaymentStatus @default(PENDING)
+
+  method        String?
+  transactionId String?
+
+  paidAt DateTime?
+
+  createdAt DateTime @default(now())
+}
+
+//////////////////////////
+// USAGE (Feature Limit)
+//////////////////////////
+
+model Usage {
+  id String @id @default(cuid())
+
+  clinicId String
+  clinic   Clinic @relation(fields: [clinicId], references: [id])
+
+  feature FeatureKey
+  used    Int        @default(0)
+
+  @@unique([clinicId, feature])
+}
+
+//////////////////////////
+// MEMBERSHIP
+//////////////////////////
+
+model Membership {
+  id String @id @default(cuid())
+
+  doctorId String
+  clinicId String
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  createdById String
+  createdBy   User   @relation("MembershipCreator", fields: [createdById], references: [id])
+
+  fee      Int     @default(0)
+  discount Int     @default(0)
+  active   Boolean @default(true)
+
+  schedules    Schedule[]
+  appointments Appointment[]
+
+  @@unique([doctorId, clinicId])
+}
+
+//////////////////////////
+// SCHEDULE
+//////////////////////////
+
+model Schedule {
+  id           String @id @default(cuid())
+  membershipId String
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  time String
+}
+
+//////////////////////////
+// APPOINTMENT
+//////////////////////////
+
+model Appointment {
+  id String @id @default(cuid())
+
+  patientName String
+  ptAge       String
+  phoneNumber String
+
+  appointmentDate DateTime
+
+  status AppointmentStatus @default(SCHEDULED)
+
+  doctorId  String
+  patientId String
+  clinicId  String
+
+  doctor  User @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  patient User @relation("PatientAppointments", fields: [patientId], references: [id])
+  clinic  User @relation("ClinicAppointments", fields: [clinicId], references: [id])
+
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id])
+}
+
+//////////////////////////
+// REVIEW
+//////////////////////////
+
+model Review {
+  id         String     @id @default(cuid())
+  rating     Int        @default(1)
+  comment    String?    @db.Text
+  type       ReviewType @default(DOCTOR)
+  // কে রিভিউ দিচ্ছে
+  reviewerId String
+  reviewer   User       @relation("UserReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  // ডাক্তারকে রিভিউ দিলে doctorId থাকবে
+  doctorId String?
+  doctor   Doctor? @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  status ReviewStatus @default(PENDING)
+  reply  ReviewReply?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reviewerId, doctorId])
+}
+
+model ReviewReply {
+  id       String @id @default(cuid())
+  content  String @db.Text
+  reviewId String @unique
+  review   Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  repliedById String
+  repliedBy   User   @relation(fields: [repliedById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+}
+
+model Feedback {
+  id String @id @default(cuid())
+
+  rating  Int     @default(1)
+  comment String? @db.Text
+
+  // 🔥 কে feedback দিচ্ছে (must be patient user)
+  patientId String
+  patient   User   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  status ReviewStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([patientId]) // optional: 1 user = 1 feedback
+}
+
+model Patient {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  age       Int?
+  gender    Gender?  @default(MALE)
+  address   String?
+  areaId    String
+  area      Area     @relation(fields: [areaId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

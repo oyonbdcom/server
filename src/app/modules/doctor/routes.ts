@@ -11,7 +11,7 @@ router.post(
   '/',
   zodValidate(DoctorZodValidation.createDoctorSchema),
   protect,
-  restrictTo('MANAGER'),
+  restrictTo(UserRole.AREA_MANAGER),
   DoctorController.createDoctor,
 );
 
@@ -19,7 +19,7 @@ router.post(
 router.post(
   '/add-to-area',
   protect,
-  restrictTo(UserRole.MANAGER),
+  restrictTo(UserRole.AREA_MANAGER),
   DoctorController.addDoctorToArea,
 );
 
@@ -27,24 +27,34 @@ router.post(
 router.post(
   '/remove-from-area',
   protect,
-  restrictTo(UserRole.MANAGER, UserRole.CLINIC),
+  restrictTo(UserRole.AREA_MANAGER, UserRole.DIAGNOSTIC_MANAGER),
   DoctorController.removeDoctorFromArea,
 );
 
 router.get('/', protectOptional, DoctorController.getDoctors);
 
 // router.get('/statistics', protect, restrictTo('ADMIN'), DoctorController.getDoctorStats);
-router.get('/manager-all', protect, restrictTo(UserRole.MANAGER), DoctorController.getAllDoctorForManager);
+router.get(
+  '/accessible-doctors',
+  protect,
+  restrictTo(UserRole.AREA_MANAGER, UserRole.DIAGNOSTIC_MANAGER),
+  DoctorController.getAccessibleDoctors,
+);
 router.get('/:id', DoctorController.getDoctorById);
 
 router.patch(
   '/:doctorId',
   zodValidate(DoctorZodValidation.updateDoctorSchema),
   protect,
-  restrictTo('ADMIN', 'MANAGER'),
+  restrictTo(UserRole.ADMIN, UserRole.AREA_MANAGER),
   DoctorController.updateDoctor,
 );
 // soft inactive  user
-// router.delete('/:userId', protect, restrictTo('ADMIN'), DoctorController.deleteDoctor);
+router.delete(
+  '/:userId',
+  protect,
+  restrictTo(UserRole?.AREA_MANAGER),
+  DoctorController.deleteDoctor,
+);
 
 export const DoctorRoutes = router;
