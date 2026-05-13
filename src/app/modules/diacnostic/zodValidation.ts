@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { phoneRegex } from '../../../constants/constant';
 import { banglaRegex } from '../../../utils/common';
 
-export const clinicSchema = z.object({
+export const diagnosticSchema = z.object({
   user: z.object({
     name: z
       .string()
@@ -20,12 +20,12 @@ export const clinicSchema = z.object({
   address: z.string().min(1, 'ঠিকানা আবশ্যক').regex(banglaRegex, 'ঠিকানা   অবশ্যই বাংলায় হতে হবে'),
   website: z.string().url('সঠিক ওয়েবসাইট URL দিন').optional().or(z.literal('')),
 });
-export const createClinicSchema = z.object({
-  body: clinicSchema,
+export const createDiagnosticSchema = z.object({
+  body: diagnosticSchema,
 });
 
-export const updateClinicSchema = z.object({
-  body: clinicSchema.partial().extend({
+export const updateDiagnosticSchema = z.object({
+  body: diagnosticSchema.partial().extend({
     user: z
       .object({
         name: z.string().regex(banglaRegex, 'নাম অবশ্যই বাংলায় হতে হবে').optional(),
@@ -46,8 +46,8 @@ export const updateClinicSchema = z.object({
   }),
 });
 
-export const ClinicZodValidation = {
-  clinicSchema,
-  createClinicSchema,
-  updateClinicSchema,
+export const DiagnosticZodValidation = {
+  diagnosticSchema,
+  createDiagnosticSchema,
+  updateDiagnosticSchema,
 };

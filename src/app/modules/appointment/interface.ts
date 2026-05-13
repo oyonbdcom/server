@@ -1,4 +1,4 @@
-import { AppointmentStatus } from '@prisma/client';
+import { AppointmentStatus, PatientType } from '@prisma/client';
 import z from 'zod';
 import { IMedicalRecordResponse } from '../medical-history/interface';
 import { CreateAppointmentSchema, UpdateAppointmentSchema } from './zodValidation';
@@ -8,19 +8,17 @@ export interface IAppointmentResponse {
   appointmentDate: Date;
   status: AppointmentStatus | null;
   serialNumber: number;
+  type: PatientType;
   phoneNumber: string | null;
-  code: string | null;
-  type?: string | null;
-  followUp?: string | null;
-  duration?: string | null;
+
   createdAt: Date;
-  discount: number;
-  refby?: string | null;
+
+  createdBy?: string | null;
   doctor: {
     id: string;
     name: string;
     image: string | null;
-    email?: string;
+
     doctor: {
       department: string | null;
       specialization: string | null;
@@ -30,7 +28,7 @@ export interface IAppointmentResponse {
     id: string;
     name: string;
     image: string | null;
-    email?: string;
+
     patient: {
       phoneNumber: string | null;
       bloodGroup: string | null;
@@ -43,8 +41,6 @@ export interface IAppointmentResponse {
     image: string | null;
     clinic: {
       address: string | null;
-      city: string | null;
-      district: string | null;
     } | null;
   };
 
@@ -52,6 +48,7 @@ export interface IAppointmentResponse {
 }
 export type IAppointmentStats = {
   total: number;
+  todayAppointments: number;
   scheduled: number;
   completed: number;
   cancelled: number;

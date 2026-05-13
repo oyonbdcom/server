@@ -90,6 +90,32 @@ export const DOCTOR_SELECT = {
     },
   },
 } satisfies Prisma.DoctorSelect;
+
+export const AREA_DOCTOR_SELECT = {
+  id: true,
+  userId: true,
+  departmentId: true,
+  department: {
+    select: {
+      name: true,
+    },
+  },
+
+  slug: true,
+  specialization: true,
+  averageRating: true,
+  reviewsCount: true,
+
+  user: {
+    select: {
+      id: true,
+      name: true,
+
+      deactivate: true,
+    },
+  },
+} satisfies Prisma.DoctorSelect;
+
 export const DoctorFilterableFields = [
   'searchTerm',
   'department',
@@ -99,5 +125,6 @@ export const DoctorFilterableFields = [
   'minRating',
   'deactivate',
   'gender',
+  'area_doctor',
   'membership',
 ];

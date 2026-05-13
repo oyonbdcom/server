@@ -8,19 +8,13 @@ import { ClinicMembershipZodValidation } from './zodValidation';
 const router = express.Router();
 
 // ১. আপনার তৈরি করা নতুন এন্ডপয়েন্ট (Get My Doctors)
-router.get(
-  '/my-doctors',
-  protect,
-  restrictTo(UserRole.DIAGNOSTIC_MANAGER),
-  MembershipController.getMyDoctors, // আপনার কন্ট্রোলারের সেই নতুন মেথড
-);
 
 // ২. সাধারণ মেম্বারশিপ লিস্ট (যেখানে সব ডাটা থাকে)
 router.get(
-  '/',
+  '/diagnostic-doctors',
   protect,
-  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.AREA_MANAGER),
-  MembershipController.getClinicMemberships,
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER),
+  MembershipController.getDiagnosticMemberDoctors,
 );
 
 router.post(

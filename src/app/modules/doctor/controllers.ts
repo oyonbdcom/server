@@ -70,12 +70,12 @@ const getDoctors = catchAsync(async (req, res) => {
     data: result?.data || null,
   });
 });
-const getAccessibleDoctors = catchAsync(async (req, res) => {
+const getAreaAndDiagnosticDoctors = catchAsync(async (req, res) => {
   const userId = req.user?.id;
   if (!userId) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
-  const result = await DoctorService.getAccessibleDoctors(userId);
+  const result = await DoctorService.getAreaAndDiagnosticDoctors(userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -141,7 +141,7 @@ const deleteDoctor = catchAsync(async (req, res) => {
 export const DoctorController = {
   createDoctor,
   getDoctors,
-  getAccessibleDoctors,
+  getAreaAndDiagnosticDoctors,
   getDoctorById,
   updateDoctor,
   deleteDoctor,

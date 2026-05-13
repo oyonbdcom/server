@@ -2,8 +2,6 @@ import { AppointmentSource, AppointmentStatus, Prisma, UserRole } from '@prisma/
 import bcrypt from 'bcrypt';
 import httpStatus from 'http-status';
 import { JwtPayload } from 'jsonwebtoken';
-import path from 'path';
-import PDFDocument from 'pdfkit';
 import config from '../../../config/config';
 import { IOptions, paginationCalculator } from '../../../helper';
 import prisma from '../../../prisma/client';
@@ -12,25 +10,229 @@ import { sendPushNotification } from '../../../utils/notification.utils';
 import { IGenericResponse } from './../../../interface/common';
 
 import { bdEndOfDay, bdNow, bdStartOfDay } from '../../../utils/timezone';
-import { appointmentPopulate, generateTokens, resolvePatientUser } from './constant';
+import {
+  appointmentPopulate,
+  generateTokens,
+  normalizePhone,
+  resolvePatientUser,
+} from './constant';
 import {
   IAppointmentCreateInput,
   IAppointmentResponse,
   IAppointmentStats,
   IAppointmentUpdateInput,
 } from './interface';
-import { buildAppointmentFilters } from './shared/buildAppointmentFilters';
-import { getAppointmentStats } from './shared/getAppointmentStats';
-import { queryAppointments } from './shared/queryAppointments';
 
 interface IGetAppointmentsFilters {
   searchTerm?: string;
   date?: string;
   status?: AppointmentStatus;
   doctorId?: string;
+  emergency?: string;
   clinicId?: string;
   area?: string;
 }
+
+const getPatientAppointments = async (userId: string, options: IOptions) => {
+  const { page, limit, skip } = paginationCalculator(options);
+
+  const todayStart = bdStartOfDay(new Date());
+  const todayEnd = bdEndOfDay(new Date());
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+    include: {
+      patient: {
+        select: { id: true },
+      },
+    },
+  });
+  // =====================================================
+  // 1. PAGINATED DATA (UI ONLY)
+  // =====================================================
+  const [appointments, total] = await Promise.all([
+    prisma.appointment.findMany({
+      where: {
+        patientId: user?.patient?.id,
+      },
+      select: {
+        doctor: {
+          select: {
+            user: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+        clinic: {
+          select: {
+            user: {
+              select: {
+                name: true,
+              },
+            },
+            address: true,
+          },
+        },
+        patientName: true,
+        appointmentDate: true,
+        doctorId: true,
+        clinicId: true,
+        serialNumber: true,
+        medicalRecords: true,
+        id: true,
+        ptAge: true,
+        priority: true,
+        type: true,
+        status: true,
+        createdAt: true,
+      },
+      skip,
+      take: limit,
+      orderBy: {
+        appointmentDate: 'desc',
+      },
+    }),
+
+    prisma.appointment.count({
+      where: { patientId: user?.patient?.id },
+    }),
+  ]);
+
+  // =====================================================
+  // 2. FULL TODAY QUEUE (LOGIC ONLY)
+  // =====================================================
+  const todayQueue = await prisma.appointment.findMany({
+    where: {
+      appointmentDate: {
+        gte: todayStart,
+        lte: todayEnd,
+      },
+      status: 'SCHEDULED',
+    },
+    select: {
+      doctor: {
+        select: {
+          user: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+      doctorId: true,
+      clinicId: true,
+      serialNumber: true,
+    },
+    orderBy: {
+      serialNumber: 'asc',
+    },
+  });
+
+  // =====================================================
+  // 3. COMPLETED POINTERS (PER QUEUE)
+  // =====================================================
+  const completed = await prisma.appointment.findMany({
+    where: {
+      appointmentDate: {
+        gte: todayStart,
+        lte: todayEnd,
+      },
+      status: 'COMPLETED',
+    },
+    select: {
+      doctor: {
+        select: {
+          user: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+      doctorId: true,
+      clinicId: true,
+      serialNumber: true,
+    },
+    orderBy: {
+      serialNumber: 'desc',
+    },
+  });
+
+  const queueMap = new Map<string, number>();
+
+  for (const c of completed) {
+    const key = `${c.doctorId}-${c.clinicId}`;
+    if (!queueMap.has(key)) {
+      queueMap.set(key, c.serialNumber);
+    }
+  }
+
+  // =====================================================
+  // 4. BUILD RESPONSE WITH ETA
+  // =====================================================
+  const enriched = appointments
+    .map((appt) => {
+      const key = `${appt.doctorId}-${appt.clinicId}`;
+
+      const currentSerial = queueMap.get(key) || 0;
+
+      const isTodayQueue = appt.appointmentDate >= todayStart && appt.appointmentDate <= todayEnd;
+
+      let position = null;
+
+      if (isTodayQueue && appt.status === 'SCHEDULED') {
+        const queue = todayQueue.filter(
+          (q) => q.doctorId === appt.doctorId && q.clinicId === appt.clinicId,
+        );
+
+        const ahead = queue.filter(
+          (q) => q.serialNumber > currentSerial && q.serialNumber < appt.serialNumber,
+        );
+
+        position = ahead.length;
+      }
+
+      return {
+        ...appt,
+        runningSerial: appt.status === 'SCHEDULED' ? currentSerial : null,
+
+        position,
+
+        isTodayQueue: isTodayQueue && appt.status === 'SCHEDULED',
+      };
+    })
+
+    // =========================
+    // SORT TODAY QUEUE FIRST
+    // =========================
+    .sort((a, b) => {
+      // today's queued appointments first
+      if (a.isTodayQueue && !b.isTodayQueue) return -1;
+      if (!a.isTodayQueue && b.isTodayQueue) return 1;
+
+      // then latest created
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+  // =====================================================
+  // 5. RETURN
+  // =====================================================
+  return {
+    meta: {
+      total,
+      page,
+      limit,
+      totalPage: Math.ceil(total / limit),
+    },
+
+    data: enriched,
+
+    queueMap: Object.fromEntries(queueMap),
+  };
+};
 
 const getMyAppointments = async (
   user: JwtPayload,
@@ -38,7 +240,7 @@ const getMyAppointments = async (
   options: IOptions,
 ): Promise<IGenericResponse<IAppointmentResponse[], IAppointmentStats>> => {
   const { searchTerm, date, status, doctorId, clinicId, area } = filters;
-  console.log(clinicId);
+
   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
 
   const andConditions: Prisma.AppointmentWhereInput[] = [];
@@ -51,30 +253,41 @@ const getMyAppointments = async (
     // -----------------------------------------
     // PATIENT
     // -----------------------------------------
-    case UserRole.PATIENT: {
-      const patient = await prisma.patient.findUnique({
-        where: {
-          userId: user.id,
-        },
-        select: {
-          id: true,
-        },
-      });
+    // case UserRole.PATIENT: {
+    //   const where: Prisma.AppointmentWhereInput = {
+    //     patientId: patient.id,
 
-      if (!patient) {
-        throw new ApiError(httpStatus.NOT_FOUND, 'Patient profile not found');
-      }
+    //     appointmentDate: {
+    //       gte: todayStart,
+    //       lte: todayEnd,
+    //     },
+    //   };
 
-      andConditions.push({
-        patientId: patient.id,
-      });
+    //   if (doctorId) where.doctorId = doctorId;
+    //   if (clinicId) where.clinicId = clinicId;
 
-      break;
-    }
+    //   const todayAppointments = await prisma.appointment.count({
+    //     where,
+    //   });
+    //   const patient = await prisma.patient.findUnique({
+    //     where: {
+    //       userId: user.id,
+    //     },
+    //     select: {
+    //       id: true,
+    //     },
+    //   });
 
-    // -----------------------------------------
-    // DOCTOR
-    // -----------------------------------------
+    //   if (!patient) {
+    //     throw new ApiError(httpStatus.NOT_FOUND, 'Patient profile not found');
+    //   }
+
+    //   andConditions.push({
+    //     patientId: patient.id,
+    //   });
+
+    //   break;
+    // }
 
     // -----------------------------------------
     // DIAGNOSTIC MANAGER
@@ -123,6 +336,11 @@ const getMyAppointments = async (
           areaId: manager.areaId,
         },
       });
+      if (filters?.emergency) {
+        andConditions.push({
+          type: 'EMERGENCY',
+        });
+      }
 
       break;
     }
@@ -139,6 +357,7 @@ const getMyAppointments = async (
         select: {
           clinicId: true,
           assignedDoctorId: true,
+          staffType: true,
         },
       });
 
@@ -146,17 +365,19 @@ const getMyAppointments = async (
         throw new ApiError(httpStatus.NOT_FOUND, 'Staff profile not found');
       }
 
-      // clinic scoped
+      // =====================================================
+      // RECEPTIONIST
+      // only own created appointments
+      // =====================================================
+
       andConditions.push({
-        clinicId: staff.clinicId,
+        createdById: user.id,
       });
 
-      // assigned doctor only
-      if (staff.assignedDoctorId) {
-        andConditions.push({
-          doctorId: staff.assignedDoctorId,
-        });
-      }
+      // =====================================================
+      // COORDINATOR
+      // own appointments + assigned doctor appointments
+      // =====================================================
 
       break;
     }
@@ -273,50 +494,60 @@ const getMyAppointments = async (
   // QUERY
   // =====================================================
 
-  const [result, total, pending, scheduled, completed, cancelled] = await Promise.all([
-    prisma.appointment.findMany({
-      where: whereConditions,
+  const [result, total, todayAppointments, pending, scheduled, completed, cancelled] =
+    await Promise.all([
+      prisma.appointment.findMany({
+        where: whereConditions,
 
-      skip,
-      take: limit,
+        skip,
+        take: limit,
 
-      orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { appointmentDate: 'desc' },
+        orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { appointmentDate: 'desc' },
 
-      include: appointmentPopulate,
-    }),
+        include: appointmentPopulate,
+      }),
 
-    prisma.appointment.count({
-      where: whereConditions,
-    }),
+      prisma.appointment.count({
+        where: whereConditions,
+      }),
+      prisma.appointment.count({
+        where: {
+          ...whereConditions,
 
-    prisma.appointment.count({
-      where: {
-        ...whereConditions,
-        status: AppointmentStatus.PENDING,
-      },
-    }),
+          appointmentDate: {
+            gte: bdStartOfDay(date),
+            lte: bdEndOfDay(date),
+          },
+        },
+      }),
+      prisma.appointment.count({
+        where: {
+          ...whereConditions,
+          status: AppointmentStatus.PENDING,
+        },
+      }),
 
-    prisma.appointment.count({
-      where: {
-        ...whereConditions,
-        status: AppointmentStatus.SCHEDULED,
-      },
-    }),
+      prisma.appointment.count({
+        where: {
+          ...whereConditions,
+          status: AppointmentStatus.SCHEDULED,
+        },
+      }),
 
-    prisma.appointment.count({
-      where: {
-        ...whereConditions,
-        status: AppointmentStatus.COMPLETED,
-      },
-    }),
+      prisma.appointment.count({
+        where: {
+          ...whereConditions,
+          status: AppointmentStatus.COMPLETED,
+        },
+      }),
 
-    prisma.appointment.count({
-      where: {
-        ...whereConditions,
-        status: AppointmentStatus.CANCELLED,
-      },
-    }),
-  ]);
+      prisma.appointment.count({
+        where: {
+          ...whereConditions,
+          status: AppointmentStatus.CANCELLED,
+        },
+      }),
+    ]);
 
   return {
     meta: {
@@ -330,6 +561,7 @@ const getMyAppointments = async (
 
     stats: {
       total,
+      todayAppointments,
       pending,
       scheduled,
       completed,
@@ -338,205 +570,213 @@ const getMyAppointments = async (
   };
 };
 
-const getManagerAreaAppointments = async (
+const getCoordinatorDashboard = async (
   userId: string,
-  filters: any,
+  filter: { status?: AppointmentStatus; search?: string },
   options: IOptions,
-): Promise<IGenericResponse<any[]>> => {
-  const manager = await prisma.manager.findUnique({
-    where: {
-      userId,
-    },
+) => {
+  const { page, limit, skip } = paginationCalculator(options);
 
-    select: {
-      areaId: true,
-    },
-  });
+  // =====================================================
+  // STAFF
+  // =====================================================
 
-  if (!manager) {
-    throw new ApiError(404, 'Manager not found');
-  }
-
-  const where: Prisma.AppointmentWhereInput = {
-    AND: [
-      {
-        clinic: {
-          areaId: manager.areaId,
+  const staff = await prisma.staff.findUnique({
+    where: { userId },
+    include: {
+      assignedDoctor: {
+        include: {
+          user: true,
+          department: true,
         },
       },
+    },
+  });
 
-      buildAppointmentFilters(filters),
-    ],
-  };
+  if (!staff) throw new ApiError(httpStatus.NOT_FOUND, 'Staff not found');
 
-  const result = await queryAppointments(where, options);
-
-  const stats = await getAppointmentStats(where);
-  console.log({ stats });
-  return {
-    ...result,
-    stats,
-  };
-};
-
-const exportDailyPdf = async (
-  userId: string,
-  filters: {
-    date?: string;
-    status?: AppointmentStatus;
-    doctorId?: string;
-  },
-): Promise<Buffer> => {
-  const { status, date, doctorId } = filters;
-  if (!date || !doctorId) {
-    throw new Error('Date and Doctor ID are required to export the report.');
+  if (staff.staffType !== 'COORDINATOR') {
+    throw new ApiError(httpStatus.FORBIDDEN, 'Access denied');
   }
-  const targetDate = date ? new Date(date) : new Date();
-  const todayStart = bdStartOfDay(targetDate);
-  const todayEnd = bdEndOfDay(targetDate);
 
-  // Fetching Names
-  const [doctor, clinic] = await Promise.all([
-    prisma.user.findUnique({ where: { id: doctorId }, select: { name: true } }),
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { name: true, clinic: { select: { address: true } } },
+  if (!staff.assignedDoctorId) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'No doctor assigned');
+  }
+
+  // =====================================================
+  // DATE RANGE (TODAY)
+  // =====================================================
+
+  const start = bdStartOfDay(new Date());
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  // =====================================================
+  // BASE FILTER (REUSABLE)
+  // =====================================================
+
+  const baseWhere: Prisma.AppointmentWhereInput = {
+    doctorId: staff.assignedDoctorId,
+    appointmentDate: {
+      gte: start,
+      lt: end,
+    },
+  };
+
+  // =====================================================
+  // SEARCH FILTER
+  // =====================================================
+
+  const search = filter?.search?.trim();
+
+  const normalizedSearch = search ? normalizePhone(search) : '';
+
+  const searchFilter: Prisma.AppointmentWhereInput = search
+    ? {
+        phoneNumber: {
+          contains: normalizedSearch,
+        },
+      }
+    : {};
+  // =====================================================
+  // STATUS FILTER (DEFAULT = SCHEDULED)
+  // =====================================================
+
+  const statusFilter: Prisma.AppointmentWhereInput = {
+    status: filter?.status || 'SCHEDULED',
+  };
+
+  // =====================================================
+  // FINAL WHERE
+  // =====================================================
+
+  const whereConditions: Prisma.AppointmentWhereInput = {
+    ...baseWhere,
+    ...statusFilter,
+    ...searchFilter,
+  };
+
+  // =====================================================
+  // STATS BASE (same date only)
+  // =====================================================
+
+  const statsWhere = baseWhere;
+
+  // =====================================================
+  // QUERY
+  // =====================================================
+
+  const [appointments, total, scheduled, completed, cancelled] = await Promise.all([
+    prisma.appointment.findMany({
+      where: whereConditions,
+      skip,
+      take: limit,
+      include: {
+        doctor: {
+          include: {
+            user: true,
+            department: true,
+          },
+        },
+        patient: true,
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+          },
+        },
+      },
+      orderBy: [{ priority: 'desc' }, { serialNumber: 'asc' }],
+    }),
+
+    prisma.appointment.count({
+      where: whereConditions,
+    }),
+
+    prisma.appointment.count({
+      where: { ...statsWhere, status: 'SCHEDULED' },
+    }),
+
+    prisma.appointment.count({
+      where: { ...statsWhere, status: 'COMPLETED' },
+    }),
+
+    prisma.appointment.count({
+      where: { ...statsWhere, status: 'CANCELLED' },
     }),
   ]);
-  const statusFilter = status
-    ? (status as AppointmentStatus) // If single status is passed
-    : { in: ['PENDING', 'SCHEDULED'] as AppointmentStatus[] };
-  const appointments = await prisma.appointment.findMany({
-    where: {
-      doctorId,
-      appointmentDate: { gte: todayStart, lte: todayEnd },
-      status: statusFilter,
+
+  // =====================================================
+  // RETURN
+  // =====================================================
+
+  return {
+    meta: {
+      page,
+      limit,
+      total,
+      totalPage: Math.ceil(total / limit),
     },
-    orderBy: { serialNumber: 'asc' },
-    select: {
-      serialNumber: true,
-      patientName: true,
-      phoneNumber: true,
-      address: true,
-      createdBy: true,
+
+    data: {
+      doctor: {
+        id: staff.assignedDoctor?.id,
+        name: staff.assignedDoctor?.user?.name,
+        department: staff.assignedDoctor?.department?.name,
+      },
+      appointments,
     },
-  });
 
-  const doc = new PDFDocument({ size: 'A4', margin: 40 });
-  const chunks: Buffer[] = [];
-  doc.on('data', (chunk) => chunks.push(chunk));
-
-  const pdfBuffer: Buffer = await new Promise((resolve, reject) => {
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', (err) => reject(err));
-
-    const fontPath = path.join(__dirname, '../../../assets/NotoSansBengali_Condensed-Regular.ttf');
-    doc.font(fontPath);
-
-    // --- Header Section ---
-    const clinicName = (clinic?.name || 'HEALTH CLINIC').toUpperCase();
-    doc.fillColor('#1a2a3a').fontSize(22).text(clinicName, { align: 'center' });
-
-    const clinicAddress = clinic?.clinic?.address || 'Address not provided';
-
-    doc.fontSize(10).fillColor('#555').text(`${clinicAddress} |  `, { align: 'center' });
-    doc.moveDown(1.5);
-
-    // Separator Line
-    doc
-      .moveTo(40, doc.y - 10)
-      .lineTo(555, doc.y - 10)
-      .strokeColor('#ccc')
-      .lineWidth(0.5)
-      .stroke();
-
-    // Doctor Info
-    doc
-      .fillColor('#000')
-      .fontSize(12)
-      .text(`Doctor: Dr. ${doctor?.name || 'N/A'}`);
-    doc.text(`Schedule Date: ${date}`, { align: 'left' });
-    doc.moveDown(1);
-
-    // --- Table Constants (Updated for 5 Columns) ---
-    const tableTop = doc.y;
-    // We redistributed widths to accommodate 'Ref By'
-    const colWidths = { sl: 30, name: 130, phone: 100, address: 155, ref: 100 };
-    const colPositions = {
-      sl: 40,
-      name: 40 + colWidths.sl,
-      phone: 40 + colWidths.sl + colWidths.name,
-      address: 40 + colWidths.sl + colWidths.name + colWidths.phone,
-      ref: 40 + colWidths.sl + colWidths.name + colWidths.phone + colWidths.address,
-    };
-    const rowHeight = 25;
-    const tableWidth = 515;
-
-    // --- Draw Table Header ---
-    doc.rect(40, tableTop, tableWidth, rowHeight).fill('#2c3e50');
-    doc.fillColor('#ffffff').fontSize(10);
-    doc.text('SL', colPositions.sl + 5, tableTop + 8);
-    doc.text('Patient Name', colPositions.name + 5, tableTop + 8);
-    doc.text('Phone', colPositions.phone + 5, tableTop + 8);
-    doc.text('Address', colPositions.address + 5, tableTop + 8);
-    doc.text('Ref. By', colPositions.ref + 5, tableTop + 8); // New Header
-
-    let currentY = tableTop + rowHeight;
-    const safeString = (val: any) => (val ? String(val) : '-');
-
-    // --- Table Rows ---
-    appointments.forEach((apt, index) => {
-      if (index % 2 !== 0) doc.rect(40, currentY, tableWidth, rowHeight).fill('#f9f9f9');
-
-      doc.fillColor('#000').fontSize(9);
-      doc.text(safeString(apt.serialNumber), colPositions.sl + 5, currentY + 8);
-      doc.text(safeString(apt.patientName), colPositions.name + 5, currentY + 8, {
-        width: colWidths.name - 5,
-        lineBreak: false,
-      });
-      doc.text(safeString(apt.phoneNumber), colPositions.phone + 5, currentY + 8);
-      doc.text(safeString(apt.address), colPositions.address + 5, currentY + 8, {
-        width: colWidths.address - 5,
-        lineBreak: false,
-      });
-      doc.text(safeString(apt.createdBy), colPositions.ref + 5, currentY + 8, {
-        width: colWidths.ref - 5,
-        lineBreak: false,
-      }); // New Row Data
-
-      doc
-        .moveTo(40, currentY + rowHeight)
-        .lineTo(40 + tableWidth, currentY + rowHeight)
-        .strokeColor('#ccc')
-        .lineWidth(0.5)
-        .stroke();
-      currentY += rowHeight;
-
-      if (currentY > 750) {
-        doc.addPage();
-        currentY = 50;
-      }
-    });
-
-    // --- Draw Vertical Column Borders ---
-    const verticalLines = [
-      40,
-      colPositions.name,
-      colPositions.phone,
-      colPositions.address,
-      colPositions.ref, // Added line for Ref By
-      40 + tableWidth,
-    ];
-
-    verticalLines.forEach((x) => {
-      doc.moveTo(x, tableTop).lineTo(x, currentY).strokeColor('#2c3e50').lineWidth(0.5).stroke();
-    });
-
-    doc.end();
-  });
-
-  return pdfBuffer;
+    stats: {
+      total,
+      scheduled,
+      completed,
+      cancelled,
+      todayAppointments: total,
+    },
+  };
 };
+// const getManagerAreaAppointments = async (
+//   userId: string,
+//   filters: any,
+//   options: IOptions,
+// ): Promise<IGenericResponse<any[]>> => {
+//   const manager = await prisma.manager.findUnique({
+//     where: {
+//       userId,
+//     },
+
+//     select: {
+//       areaId: true,
+//     },
+//   });
+
+//   if (!manager) {
+//     throw new ApiError(404, 'Manager not found');
+//   }
+
+//   const where: Prisma.AppointmentWhereInput = {
+//     AND: [
+//       {
+//         clinic: {
+//           areaId: manager.areaId,
+//         },
+//       },
+
+//       buildAppointmentFilters(filters),
+//     ],
+//   };
+
+//   const result = await queryAppointments(where, options);
+
+//   const stats = await getAppointmentStats(where);
+//   console.log({ stats });
+//   return {
+//     ...result,
+//     stats,
+//   };
+// };
 
 export const createAppointment = async (
   payload: IAppointmentCreateInput & { otp: string },
@@ -720,9 +960,6 @@ export const createAppointment = async (
       }
     }
 
-    // 7️⃣ SERIAL NUMBER
-    const todayDate = bdStartOfDay(new Date());
-
     const counter = await tx.appointmentCounter.upsert({
       where: {
         doctorId_clinicId_date: {
@@ -755,11 +992,11 @@ export const createAppointment = async (
 
         appointmentDate: bdNow(),
 
-        status: 'PENDING',
+        status: 'SCHEDULED',
 
         serialNumber,
 
-        source: authUser ? 'PLATFORM' : 'PLATFORM',
+        source: 'PLATFORM',
 
         doctor: {
           connect: {
@@ -989,6 +1226,156 @@ const createAppointmentByDiagnosticStaff = async (payload: any, staffUserId: str
   });
 };
 
+// emergency
+const requestEmergency = async (appointmentId: string) => {
+  return prisma.$transaction(async (tx) => {
+    const appointment = await tx.appointment.findUnique({
+      where: {
+        id: appointmentId,
+      },
+    });
+
+    if (!appointment) {
+      throw new ApiError(404, 'Appointment not found');
+    }
+    if (appointment?.isEmRequest) {
+      throw new ApiError(404, 'One time send emergency request');
+    }
+
+    // already requested
+    if (appointment.priority > 0) {
+      return appointment;
+    }
+
+    // highest priority
+    const highestPriorityAppointment = await tx.appointment.findFirst({
+      where: {
+        doctorId: appointment.doctorId,
+        priority: {
+          gt: 0,
+        },
+
+        status: 'SCHEDULED',
+      },
+
+      orderBy: {
+        priority: 'desc',
+      },
+    });
+
+    const nextPriority = highestPriorityAppointment ? highestPriorityAppointment.priority - 1 : 999;
+
+    return tx.appointment.update({
+      where: {
+        id: appointmentId,
+      },
+
+      data: {
+        type: 'EMERGENCY',
+        isEmRequest: true,
+        priority: nextPriority,
+      },
+    });
+  });
+};
+
+const completeAppointment = async (appointmentId: string) => {
+  return prisma.appointment.update({
+    where: {
+      id: appointmentId,
+    },
+
+    data: {
+      status: 'COMPLETED',
+      priority: 0,
+    },
+  });
+};
+
+const rejectEmergency = async (appointmentId: string) => {
+  return prisma.appointment.update({
+    where: {
+      id: appointmentId,
+    },
+
+    data: {
+      priority: 0,
+      type: 'NORMAL',
+    },
+  });
+};
+const acceptEmergencyAppointment = async (appointmentId: string) => {
+  return prisma.$transaction(async (tx) => {
+    const appointment = await tx.appointment.findUnique({
+      where: { id: appointmentId },
+    });
+
+    if (!appointment) {
+      throw new ApiError(404, 'Appointment not found');
+    }
+
+    const todayStart = bdStartOfDay(new Date());
+    const todayEnd = bdEndOfDay(new Date());
+
+    // LAST COMPLETED
+    const lastCompleted = await tx.appointment.findFirst({
+      where: {
+        doctorId: appointment.doctorId,
+        status: 'COMPLETED',
+        appointmentDate: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+      },
+
+      orderBy: {
+        serialNumber: 'desc',
+      },
+    });
+
+    // INSERT POSITION
+    const newSerial = (lastCompleted?.serialNumber || 0) + 1;
+
+    // SHIFT QUEUE
+    await tx.appointment.updateMany({
+      where: {
+        doctorId: appointment.doctorId,
+
+        appointmentDate: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+
+        status: 'SCHEDULED',
+
+        serialNumber: {
+          gte: newSerial,
+        },
+      },
+
+      data: {
+        serialNumber: {
+          increment: 1,
+        },
+      },
+    });
+
+    // INSERT EMERGENCY
+    await tx.appointment.update({
+      where: {
+        id: appointmentId,
+      },
+
+      data: {
+        status: 'SCHEDULED',
+        type: 'EMERGENCY',
+        serialNumber: newSerial,
+      },
+    });
+
+    return true;
+  });
+};
 // Update Appointment Reason/Date (Update)
 const updateAppointment = async (
   id: string,
@@ -997,7 +1384,7 @@ const updateAppointment = async (
   if (!id) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Appointment ID is required');
   }
-
+  console.log(payload);
   // 1️⃣ Check appointment
   const isExist = await prisma.appointment.findUnique({
     where: { id },
@@ -1078,10 +1465,13 @@ const updateAppointment = async (
 
 export const AppointmentService = {
   getMyAppointments,
-  getManagerAreaAppointments,
-  exportDailyPdf,
-
   createAppointment,
+  acceptEmergencyAppointment,
   createAppointmentByDiagnosticStaff,
+  getCoordinatorDashboard,
+  requestEmergency,
+  completeAppointment,
+  rejectEmergency,
+  getPatientAppointments,
   updateAppointment,
 };

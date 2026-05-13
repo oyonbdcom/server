@@ -37,12 +37,28 @@ enum StaffType {
   COORDINATOR
 }
 
+enum PatientType {
+  NORMAL
+  EMERGENCY
+}
+
 enum AppointmentSource {
   PLATFORM
   STAFF
   MANAGER
   CLINIC
   ADMIN
+}
+
+enum EmergencyType {
+  COORDINATOR
+  PLATFORM
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
 }
 
 enum Gender {
@@ -110,10 +126,11 @@ model User {
   createdAppointments Appointment[] @relation("AppointmentCreator")
   reviewsWritten      Review[]      @relation("UserReviews")
 
-  reviewReplies ReviewReply[]
-  feedbacks     Feedback[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  reviewReplies     ReviewReply[]
+  feedbacks         Feedback[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  emergencyRequests EmergencyRequest[]
 }
 
 model Otp {
@@ -268,6 +285,7 @@ model Appointment {
   id              String            @id @default(cuid())
   patientName     String
   ptAge           String
+  type            PatientType       @default(NORMAL)
   phoneNumber     String
   address         String?
   note            String?
@@ -284,16 +302,35 @@ model Appointment {
   patientId       String
   patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  medicalRecords MedicalRecord[]
-
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  membership   Membership? @relation(fields: [membershipId], references: [id])
-  membershipId String?
+  medicalRecords   MedicalRecord[]
+  emergency        EmergencyRequest?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  membership       Membership?       @relation(fields: [membershipId], references: [id])
+  membershipId     String?
+  emergencyRequest EmergencyRequest?
 
   @@unique([doctorId, appointmentDate, serialNumber])
   @@index([doctorId, appointmentDate])
   @@index([patientId, appointmentDate])
+}
+
+model EmergencyRequest {
+  id String @id @default(cuid())
+
+  appointmentId String      @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  type EmergencyType
+
+  transactionId String?
+  paymentStatus PaymentStatus @default(PENDING)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // --- Feedback System ---

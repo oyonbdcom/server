@@ -9,7 +9,7 @@ import ApiError from '../../../utils/apiError';
 
 import config from '../../../config/config';
 import { createSlug } from '../../../utils/createSlug';
-import { DOCTOR_SELECT } from './constant';
+import { AREA_DOCTOR_SELECT, DOCTOR_SELECT } from './constant';
 import { IDoctorResponse } from './interface';
 import { CreateDoctorInput } from './zodValidation';
 
@@ -133,6 +133,7 @@ const getDoctors = async (
     deactivate?: string;
     gender?: 'MALE' | 'FEMALE';
     myAreaOnly?: string;
+    area_doctor?: string;
     membership?: string;
   },
   options: IOptions,
@@ -149,6 +150,7 @@ const getDoctors = async (
     district,
     area,
     myAreaOnly,
+    area_doctor,
   } = filter;
 
   const andConditions: Prisma.DoctorWhereInput[] = [];
@@ -249,7 +251,7 @@ const getDoctors = async (
       skip,
       take: limit,
       orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
-      select: DOCTOR_SELECT,
+      select: area_doctor ? AREA_DOCTOR_SELECT : DOCTOR_SELECT,
     }),
     prisma.doctor.count({ where: whereCondition }),
   ]);
@@ -262,198 +264,108 @@ const getDoctors = async (
   };
 };
 
-const getAccessibleDoctors = async (userId: string): Promise<any[]> => {
+const getAreaAndDiagnosticDoctors = async (userId: string): Promise<any[]> => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-
     include: {
-      clinic: true,
-
       manager: true,
-
-      staff: {
-        include: {
-          clinic: true,
-        },
-      },
+      clinic: true,
+      staff: true,
     },
   });
 
   if (!user) {
-    throw new ApiError(404, 'ইউজার পাওয়া যায়নি');
+    throw new ApiError(404, 'ইউজার পাওয়া যায়নি');
   }
 
-  // =========================
-  // AREA MANAGER
-  // =========================
+  let allUniqueDoctorIds: string[] = [];
+
+  // ==========================================
+  // ১. AREA MANAGER: এরিয়ার সব ডাক্তার + এরিয়ার ক্লিনিকগুলোর মেম্বার ডাক্তার
+  // ==========================================
   if (user.role === 'AREA_MANAGER') {
     const areaId = user.manager?.areaId;
+    if (!areaId) throw new ApiError(403, 'আপনার সাথে কোনো এরিয়া যুক্ত নেই');
 
-    if (!areaId) {
-      throw new ApiError(403, 'এরিয়া পাওয়া যায়নি');
-    }
-
-    const doctors = await prisma.doctorArea.findMany({
-      where: {
-        areaId,
-      },
-
-      select: {
-        doctor: {
-          select: {
-            id: true,
-            department: true,
-
-            user: {
-              select: {
-                name: true,
-                image: true,
-              },
-            },
-
-            // memberships: {
-            //   where: {
-            //     active: true,
-            //   },
-
-            //   select: {
-            //     id: true,
-            //     fee: true,
-            //     clinicId: true,
-
-            //     clinic: {
-            //       select: {
-            //         user: {
-            //           select: {
-            //             name: true,
-            //           },
-            //         },
-            //       },
-            //     },
-
-            //     schedules: true,
-            //   },
-            // },
-          },
-        },
-      },
+    const areaDoctors = await prisma.doctorArea.findMany({
+      where: { areaId },
+      select: { doctorId: true },
     });
 
-    return doctors.map((d) => ({
-      id: d.doctor.id,
-      name: d.doctor.user.name,
-      image: d.doctor.user.image,
-      department: d.doctor.department,
-
-      // memberships: d.doctor.memberships.map((m) => ({
-      //   membershipId: m.id,
-      //   clinicId: m.clinicId,
-      //   clinicName: m.clinic.user.name,
-      //   fee: m.fee,
-      //   schedules: m.schedules,
-      // })),
-    }));
-  }
-
-  // =========================
-  // DIAGNOSTIC MANAGER / STAFF
-  // =========================
-
-  let clinicId: string | null = null;
-
-  if (user.role === 'DIAGNOSTIC_MANAGER') {
-    clinicId = user.clinic?.id || null;
-  }
-
-  if (user.role === 'STAFF') {
-    clinicId = user.staff?.clinicId || null;
-  }
-
-  if (!clinicId) {
-    throw new ApiError(403, 'ক্লিনিক পাওয়া যায়নি');
-  }
-
-  // COORDINATOR
-  if (user.role === 'STAFF' && user.staff?.staffType === 'COORDINATOR') {
-    const memberships = await prisma.membership.findMany({
+    const clinicMembershipDoctors = await prisma.membership.findMany({
       where: {
-        clinicId,
-        doctorId: user.staff.assignedDoctorId || '',
         active: true,
+        clinic: { areaId: areaId },
       },
-
-      select: {
-        id: true,
-        fee: true,
-
-        doctor: {
-          select: {
-            id: true,
-            department: true,
-
-            user: {
-              select: {
-                name: true,
-                image: true,
-              },
-            },
-          },
-        },
-
-        // schedules: true,
-      },
+      select: { doctorId: true },
     });
 
-    return memberships.map((m) => ({
-      // membershipId: m.id,
-      // fee: m.fee,
-      // // schedules: m.schedules,
-
-      id: m.doctor.id,
-      name: m.doctor.user.name,
-      image: m.doctor.user.image,
-      department: m.doctor.department,
-    }));
+    allUniqueDoctorIds = Array.from(
+      new Set([
+        ...areaDoctors.map((d) => d.doctorId),
+        ...clinicMembershipDoctors.map((m) => m.doctorId),
+      ]),
+    );
   }
 
-  // RECEPTIONIST + DIAGNOSTIC_MANAGER
-  const memberships = await prisma.membership.findMany({
+  // ==========================================
+  // ২. DIAGNOSTIC MANAGER / CLINIC USER: তার নিজের ক্লিনিকের মেম্বার ডাক্তার
+  // ==========================================
+  else if (user.role === 'DIAGNOSTIC_MANAGER') {
+    const clinicId = user.clinic?.id; // সরাসরি ইউজার থেকে ক্লিনিক আইডি
+    if (!clinicId) throw new ApiError(403, 'আপনার কোনো ক্লিনিক প্রোফাইল পাওয়া যায়নি');
+
+    const memberships = await prisma.membership.findMany({
+      where: { clinicId, active: true },
+      select: { doctorId: true },
+    });
+
+    allUniqueDoctorIds = memberships.map((m) => m.doctorId);
+  }
+
+  // ==========================================
+  // ৩. STAFF: যে ক্লিনিকে সে কর্মরত, সেই ক্লিনিকের মেম্বার ডাক্তার
+  // ==========================================
+  else if (user.role === 'STAFF') {
+    const clinicId = user.staff?.clinicId;
+    if (!clinicId) throw new ApiError(403, 'আপনার কর্মরত ক্লিনিক খুঁজে পাওয়া যায়নি');
+
+    const memberships = await prisma.membership.findMany({
+      where: { clinicId, active: true },
+      select: { doctorId: true },
+    });
+
+    allUniqueDoctorIds = memberships.map((m) => m.doctorId);
+  }
+
+  // ==========================================
+  // ৪. ফাইনাল ডাক্তারদের ডাটা ফেচিং
+  // ==========================================
+  if (allUniqueDoctorIds.length === 0) return [];
+
+  const doctors = await prisma.doctor.findMany({
     where: {
-      clinicId,
-      active: true,
+      id: { in: allUniqueDoctorIds },
     },
-
     select: {
-      // id: true,
-      // fee: true,
-
-      doctor: {
+      id: true,
+      department: true,
+      specialization: true,
+      user: {
         select: {
-          id: true,
-          department: true,
-
-          user: {
-            select: {
-              name: true,
-              image: true,
-            },
-          },
+          name: true,
+          image: true,
         },
       },
-
-      // schedules: true,
     },
   });
 
-  return memberships.map((m) => ({
-    // membershipId: m.id,
-    // fee: m.fee,
-    // schedules: m.schedules,
-
-    id: m.doctor.id,
-    name: m.doctor.user.name,
-    image: m.doctor.user.image,
-    department: m.doctor.department,
+  return doctors.map((doc) => ({
+    id: doc.id,
+    name: doc.user.name,
+    image: doc.user.image,
+    department: doc.department,
+    specialization: doc.specialization,
   }));
 };
 // const getDoctorStats = async (): Promise<IDoctorStats> => {
@@ -612,7 +524,7 @@ export const DoctorService = {
   deleteDoctor,
   getDoctorById,
   updateDoctor,
-  getAccessibleDoctors,
+  getAreaAndDiagnosticDoctors,
   addDoctorToArea,
   removeDoctorFromArea,
 };

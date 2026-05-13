@@ -4,7 +4,7 @@ import { IAppointmentResponse } from '../appointment/interface';
 import { IAreaResponse } from '../location/interface';
 import { IReviewResponse } from '../review/interface';
 import { IUserResponse } from '../user/interface';
-import { createClinicSchema, updateClinicSchema } from './zodValidation';
+import { createDiagnosticSchema, updateDiagnosticSchema } from './zodValidation';
 
 export interface IDistrict {
   id: string;
@@ -14,7 +14,7 @@ export interface IDistrict {
   updatedAt: string;
 }
 
-export interface IClinicResponse {
+export interface IDiagnosticResponse {
   id: string;
   userId: string;
   user: IUserResponse;
@@ -39,9 +39,9 @@ export interface IAreaClinicResponse {
   website?: string;
 }
 
-export type ICreateClinicRequest = z.infer<typeof createClinicSchema>['body'];
+export type ICreateDiagnosticRequest = z.infer<typeof createDiagnosticSchema>['body'];
 
-export type IUpdateClinicRequest = z.infer<typeof updateClinicSchema>['body'];
+export type IUpdateDiagnosticRequest = z.infer<typeof updateDiagnosticSchema>['body'];
 export interface IStaffActivity {
   id: string;
   name: string;
@@ -56,7 +56,7 @@ export interface IDiagnosticManagerStats {
   totalStaffs: number;
   staffActivities: IStaffActivity[];
 }
-export interface IClinicWithRelationsResponse extends IClinicResponse {
+export interface IClinicWithRelationsResponse extends IDiagnosticResponse {
   reviews?: IReviewResponse[];
 
   appointments?: IAppointmentResponse[];

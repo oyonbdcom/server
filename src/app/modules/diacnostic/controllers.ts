@@ -5,14 +5,14 @@ import pick from '../../../helper/pick';
 import { catchAsync } from '../../../shared/catchAsync';
 import { sendResponse } from '../../../shared/sendResponse';
 import ApiError from '../../../utils/apiError';
-import { ClinicFilterableFields } from './constant';
-import { IClinicResponse, IDiagnosticManagerStats } from './interface';
-import { ClinicService } from './service';
+import { DiagnosticFilterableFields } from './constant';
+import { IDiagnosticManagerStats, IDiagnosticResponse } from './interface';
+import { DiagnosticService } from './service';
 
-const createClinic = catchAsync(async (req, res) => {
+const createDiagnostic = catchAsync(async (req, res) => {
   const userId = (req as any).user.id;
-  const result = await ClinicService.createClinic(req.body, userId);
-  sendResponse<IClinicResponse>(res, {
+  const result = await DiagnosticService.createDiagnostic(req.body, userId);
+  sendResponse<IDiagnosticResponse>(res, {
     statusCode: httpStatus.CREATED,
     success: true,
     message: 'Clinic created successfully',
@@ -21,14 +21,14 @@ const createClinic = catchAsync(async (req, res) => {
   });
 });
 
-const getClinics = catchAsync(async (req, res) => {
+const getDiagnostics = catchAsync(async (req, res) => {
   const paginationOptions = pick(req.query, paginationFields);
 
-  const filter = pick(req.query, ClinicFilterableFields);
+  const filter = pick(req.query, DiagnosticFilterableFields);
 
-  const result = await ClinicService.getClinics(filter, paginationOptions);
+  const result = await DiagnosticService.getDiagnostics(filter, paginationOptions);
 
-  sendResponse<IClinicResponse[]>(res, {
+  sendResponse<IDiagnosticResponse[]>(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Clinics retrieved successfully',
@@ -37,15 +37,15 @@ const getClinics = catchAsync(async (req, res) => {
   });
 });
 
-const getAllAreaClinics = catchAsync(async (req, res) => {
+const getAllAreaDiagnostics = catchAsync(async (req, res) => {
   const paginationOptions = pick(req.query, paginationFields);
-  const filter = pick(req.query, ClinicFilterableFields);
+  const filter = pick(req.query, DiagnosticFilterableFields);
 
   const userId = (req as any).user.id;
 
-  const result = await ClinicService.getAllAreaClinics(filter, paginationOptions, userId);
+  const result = await DiagnosticService.getAllAreaDiagnostics(filter, paginationOptions, userId);
 
-  sendResponse<IClinicResponse[]>(res, {
+  sendResponse<IDiagnosticResponse[]>(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'আপনার এরিয়ার ক্লিনিকগুলো সফলভাবে আনা হয়েছে',
@@ -54,32 +54,12 @@ const getAllAreaClinics = catchAsync(async (req, res) => {
   });
 });
 
-const createStaff = catchAsync(async (req, res) => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) {
-      throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
-    }
-
-    const result = await ClinicService.createStaff(userId, req.body);
-
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      success: true,
-      message: 'স্টাফ তৈরি হয়েছে',
-      data: result,
-    });
-  } catch (error) {
-    console.error('CREATE STAFF ERROR:', error); // 🔥 THIS IS KEY
-    throw error;
-  }
-});
 const getDiagnosticManagerStats = catchAsync(async (req, res) => {
   const userId = req.user?.id;
   if (!userId) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
-  const result = await ClinicService.getDiagnosticManagerStats(userId);
+  const result = await DiagnosticService.getDiagnosticManagerStats(userId);
 
   sendResponse<IDiagnosticManagerStats>(res, {
     statusCode: httpStatus.OK,
@@ -89,28 +69,28 @@ const getDiagnosticManagerStats = catchAsync(async (req, res) => {
   });
 });
 
-const getSingleClinic = catchAsync(async (req, res) => {
+const getSingleDiagnostic = catchAsync(async (req, res) => {
   const userId = req.user?.id;
   if (!userId) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
-  const result = await ClinicService.getSingleClinic(userId);
+  const result = await DiagnosticService.getSingleDiagnostic(userId);
 
-  sendResponse<IClinicResponse>(res, {
+  sendResponse<IDiagnosticResponse>(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Clinics retrieved successfully',
+    message: 'Diagnostic retrieved successfully',
 
     data: result,
   });
 });
 
 // update
-const updateClinic = catchAsync(async (req, res) => {
+const updateDiagnostic = catchAsync(async (req, res) => {
   const clinicId = req.params.clinicId as string;
 
-  const result = await ClinicService.updateClinic(clinicId, req.body);
-  sendResponse<IClinicResponse>(res, {
+  const result = await DiagnosticService.updateDiagnostic(clinicId, req.body);
+  sendResponse<IDiagnosticResponse>(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Doctor updated successfully',
@@ -118,15 +98,15 @@ const updateClinic = catchAsync(async (req, res) => {
   });
 });
 
-const deleteClinic = catchAsync(async (req, res) => {
+const deleteDiagnostic = catchAsync(async (req, res) => {
   const clinicId = req.params.clinicId as string;
   const user = req.user;
   if (!user) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'UNAUTHORIZED');
   }
-  const deletedDoctor = await ClinicService.deleteClinic(clinicId, user);
+  const deletedDoctor = await DiagnosticService.deleteDiagnostic(clinicId, user);
 
-  sendResponse<IClinicResponse>(res, {
+  sendResponse<IDiagnosticResponse>(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Doctor deleted successfully',
@@ -134,14 +114,14 @@ const deleteClinic = catchAsync(async (req, res) => {
   });
 });
 
-export const ClinicController = {
-  createClinic,
-  getClinics,
-  createStaff,
-  getDiagnosticManagerStats,
-  deleteClinic,
-  getSingleClinic,
+export const DiagnosticController = {
+  createDiagnostic,
+  getDiagnostics,
 
-  getAllAreaClinics,
-  updateClinic,
+  getDiagnosticManagerStats,
+  deleteDiagnostic,
+  getSingleDiagnostic,
+
+  getAllAreaDiagnostics,
+  updateDiagnostic,
 };

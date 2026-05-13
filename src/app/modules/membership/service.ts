@@ -90,7 +90,7 @@ export const createMembership = async (
   }
 };
 // ১. মেম্বারশিপ লিস্ট দেখা
-export const getMyMemberships = async (
+export const getDiagnosticMemberDoctors = async (
   userId: string,
   filters: {
     searchTerm?: string;
@@ -261,48 +261,48 @@ export const getMyMemberships = async (
   };
 };
 
-const getMyDoctors = async ({ userId }: { userId: string }) => {
-  // ১. ইউজারের ক্লিনিক প্রোফাইল খুঁজে বের করা
-  const existingClinic = await prisma.clinic.findUnique({
-    where: { userId },
-  });
+// const getMyDoctors = async ({ userId }: { userId: string }) => {
+//   // ১. ইউজারের ক্লিনিক প্রোফাইল খুঁজে বের করা
+//   const existingClinic = await prisma.clinic.findUnique({
+//     where: { userId },
+//   });
 
-  if (!existingClinic) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'ক্লিনিক প্রোফাইল পাওয়া যায়নি!');
-  }
+//   if (!existingClinic) {
+//     throw new ApiError(httpStatus.NOT_FOUND, 'ক্লিনিক প্রোফাইল পাওয়া যায়নি!');
+//   }
 
-  // ২. যেহেতু ডুপ্লিকেট নেই, সরাসরি মেম্বারশিপ থেকে ডাটা আনা
-  const memberships = await prisma.membership.findMany({
-    where: {
-      active: true,
-      clinicId: existingClinic.id,
-    },
-    select: {
-      doctor: {
-        select: {
-          id: true,
-          department: true,
-          user: {
-            select: {
-              name: true,
-              id: true,
-              image: true,
-            },
-          },
-        },
-      },
-    },
-  });
+//   // ২. যেহেতু ডুপ্লিকেট নেই, সরাসরি মেম্বারশিপ থেকে ডাটা আনা
+//   const memberships = await prisma.membership.findMany({
+//     where: {
+//       active: true,
+//       clinicId: existingClinic.id,
+//     },
+//     select: {
+//       doctor: {
+//         select: {
+//           id: true,
+//           department: true,
+//           user: {
+//             select: {
+//               name: true,
+//               id: true,
+//               image: true,
+//             },
+//           },
+//         },
+//       },
+//     },
+//   });
 
-  // ৩. রেজাল্ট ম্যাপিং
-  return memberships.map((item) => ({
-    id: item.doctor.id,
-    name: item.doctor.user?.name || 'অজানা চিকিৎসক',
-    department: item.doctor.department || 'জেনারেল',
-    image: item.doctor.user?.image || null,
-    userId: item.doctor.user.id,
-  }));
-};
+//   // ৩. রেজাল্ট ম্যাপিং
+//   return memberships.map((item) => ({
+//     id: item.doctor.id,
+//     name: item.doctor.user?.name || 'অজানা চিকিৎসক',
+//     department: item.doctor.department || 'জেনারেল',
+//     image: item.doctor.user?.image || null,
+//     userId: item.doctor.user.id,
+//   }));
+// };
 
 // ২. মেম্বারশিপ আপডেট করা
 const updateMembership = async (
@@ -338,8 +338,8 @@ const deleteMembership = async (membershipId: string, userId: string) => {
 
 export const MembershipService = {
   createMembership,
-  getMyMemberships,
+  getDiagnosticMemberDoctors,
   updateMembership,
-  getMyDoctors,
+
   deleteMembership,
 };

@@ -35,10 +35,10 @@ router.get('/', protectOptional, DoctorController.getDoctors);
 
 // router.get('/statistics', protect, restrictTo('ADMIN'), DoctorController.getDoctorStats);
 router.get(
-  '/accessible-doctors',
+  '/area-diagnostic-doctors',
   protect,
-  restrictTo(UserRole.AREA_MANAGER, UserRole.DIAGNOSTIC_MANAGER),
-  DoctorController.getAccessibleDoctors,
+  restrictTo(UserRole.AREA_MANAGER, UserRole.DIAGNOSTIC_MANAGER, UserRole?.STAFF),
+  DoctorController.getAreaAndDiagnosticDoctors,
 );
 router.get('/:id', DoctorController.getDoctorById);
 

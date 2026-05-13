@@ -3,6 +3,7 @@ import httpStatus from 'http-status';
 import { catchAsync } from '../../../shared/catchAsync';
 import { sendResponse } from '../../../shared/sendResponse';
 
+import { JwtPayload } from 'jsonwebtoken';
 import { paginationFields } from '../../../constants/pagination';
 import pick from '../../../helper/pick';
 import ApiError from '../../../utils/apiError';
@@ -65,8 +66,31 @@ const createAppointmentByDiagnosticStaff = catchAsync(async (req, res) => {
   });
 });
 
+const getPatientAppointments = catchAsync(async (req, res) => {
+  const user = req.user as JwtPayload;
+
+  const paginationOptions = pick(req.query, paginationFields);
+
+  // =====================================================
+  // SERVICE CALL
+  // =====================================================
+  const result = await AppointmentService.getPatientAppointments(user?.id, paginationOptions);
+
+  // =====================================================
+  // RESPONSE
+  // =====================================================
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Appointments fetched successfully',
+    data: result.data,
+    meta: result.meta,
+    //  queueMap: result.queueMap,
+  });
+});
+
 const getMyAppointments = catchAsync(async (req, res) => {
-  const user = req.user;
+  const user = req.user as JwtPayload;
   const paginationOptions = pick(req.query, paginationFields);
 
   const filters = pick(req.query, AppointmentsFilterableFields);
@@ -77,52 +101,99 @@ const getMyAppointments = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Appointments retrieved successfully',
-    meta: result?.meta || null,
+    meta: result?.meta || undefined,
     data: result?.data || null,
     stats: result?.stats,
   });
 });
 
 // manager appointments
-const getManagerAreaAppointments = catchAsync(async (req, res) => {
+const getCoordinatorDashboard = catchAsync(async (req, res) => {
   const user = (req as any).user;
-  const filters = pick(req.query, AppointmentsFilterableFields);
-  const options = pick(req.query, ['limit', 'page', 'sortBy', 'sortOrder']);
+  const paginationOptions = pick(req.query, paginationFields);
 
-  const result = await AppointmentService.getManagerAreaAppointments(user.id, filters, options);
+  const filters = pick(req.query, AppointmentsFilterableFields);
+
+  const result = await AppointmentService.getCoordinatorDashboard(
+    user.id,
+    filters,
+    paginationOptions,
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
+
     success: true,
-    message: 'এরিয়া অ্যাপয়েন্টমেন্ট সফলভাবে পাওয়া গেছে',
+
+    message: 'কোঅর্ডিনেটর ড্যাশবোর্ড সফলভাবে পাওয়া গেছে',
+
     meta: result.meta,
+
     data: result.data,
+
     stats: result.stats,
   });
 });
 
-// export data
-const exportDoctorDailyPdf = catchAsync(async (req, res) => {
-  const filters = pick(req.query, AppointmentsFilterableFields);
-  const userId = req.user?.id;
+// ======================================================
+// CONTROLLER
+// ======================================================
 
-  // 2. Your existing validation handles the 'undefined' case
-  if (!userId) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'doctorId is required');
-  }
+const requestEmergency = catchAsync(async (req, res) => {
+  const result = await AppointmentService.requestEmergency(req.params.id as string);
 
-  // 3. TS is now happy because doctorId is guaranteed to be a string here
-  const pdfBuffer = await AppointmentService.exportDailyPdf(userId, filters);
-
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', 'inline; filename="doctor-opd-list.pdf"');
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Appointment updated successfully',
-    data: pdfBuffer,
+    message: 'Emergency request sent successfully',
+    data: result,
   });
 });
+
+const rejectEmergency = catchAsync(async (req, res) => {
+  const result = await AppointmentService.rejectEmergency(req.params.id as string);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Emergency request rejected',
+    data: result,
+  });
+});
+
+const completeAppointment = catchAsync(async (req, res) => {
+  const result = await AppointmentService.completeAppointment(req.params.id as string);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Appointment completed successfully',
+    data: result,
+  });
+});
+
+export const AppointmentController = {
+  requestEmergency,
+  rejectEmergency,
+  completeAppointment,
+};
+// manager appointments
+// const getManagerAreaAppointments = catchAsync(async (req, res) => {
+//   const user = (req as any).user;
+//   const filters = pick(req.query, AppointmentsFilterableFields);
+//   const options = pick(req.query, ['limit', 'page', 'sortBy', 'sortOrder']);
+
+//   const result = await AppointmentService.getManagerAreaAppointments(user.id, filters, options);
+
+//   sendResponse(res, {
+//     statusCode: httpStatus.OK,
+//     success: true,
+//     message: 'এরিয়া অ্যাপয়েন্টমেন্ট সফলভাবে পাওয়া গেছে',
+//     meta: result.meta,
+//     data: result.data,
+//     stats: result.stats,
+//   });
+// });
 
 // Reschedule/Update Appointment
 const updateAppointment = catchAsync(async (req, res) => {
@@ -143,10 +214,13 @@ const updateAppointment = catchAsync(async (req, res) => {
 });
 
 export const AppointmentsController = {
+  getPatientAppointments,
   getMyAppointments,
+  rejectEmergency,
+  requestEmergency,
+  completeAppointment,
   createAppointmentByDiagnosticStaff,
-  getManagerAreaAppointments,
+  getCoordinatorDashboard,
   createAppointment,
   updateAppointment,
-  exportDoctorDailyPdf,
 };

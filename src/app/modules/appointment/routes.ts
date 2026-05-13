@@ -22,31 +22,66 @@ router.post(
   // zodValidate(AppointmentZodValidation.CreateAppointmentSchema),
   AppointmentsController.createAppointmentByDiagnosticStaff,
 );
-router.get(
-  '/manager-appointments',
-  protect,
-  restrictTo(UserRole.AREA_MANAGER),
-  AppointmentsController.getManagerAreaAppointments,
-);
+// router.get(
+//   '/manager-appointments',
+//   protect,
+//   restrictTo(UserRole.AREA_MANAGER),
+//   AppointmentsController.getManagerAreaAppointments,
+// );
 
 // Admin routes
 router.get(
   '/',
   protect,
-  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.ADMIN, UserRole.PATIENT, UserRole.AREA_MANAGER),
+  restrictTo(
+    UserRole.DIAGNOSTIC_MANAGER,
+    UserRole.ADMIN,
+    UserRole.PATIENT,
+    UserRole.AREA_MANAGER,
+    UserRole?.STAFF,
+  ),
   AppointmentsController.getMyAppointments,
 );
-router.get('/export', protect, AppointmentsController.exportDoctorDailyPdf);
 router.get(
-  '/:aptId',
+  '/patient-appointments',
   protect,
-  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.ADMIN),
-  AppointmentsController.getMyAppointments,
+  restrictTo(UserRole?.PATIENT),
+  AppointmentsController.getPatientAppointments,
+);
+router.get(
+  '/coordinator-dashboard',
+  protect,
+  restrictTo(UserRole.STAFF, UserRole.ADMIN),
+  AppointmentsController.getCoordinatorDashboard,
+);
+// ======================================================
+// ROUTE
+// ======================================================
+
+router.patch(
+  '/:id/request-emergency',
+  protect,
+  restrictTo(UserRole.PATIENT, UserRole.STAFF),
+  AppointmentsController.requestEmergency,
+);
+
+router.patch(
+  '/:id/reject-emergency',
+  protect,
+  restrictTo(UserRole.PATIENT, UserRole.STAFF),
+  AppointmentsController.rejectEmergency,
+);
+
+router.patch(
+  '/:id/complete',
+  protect,
+  restrictTo(UserRole.PATIENT, UserRole.STAFF),
+  AppointmentsController.completeAppointment,
 );
 router.patch(
   '/:aptId',
   protect,
-  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.ADMIN, UserRole.AREA_MANAGER),
+  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.ADMIN, UserRole.AREA_MANAGER, UserRole?.STAFF),
   zodValidate(AppointmentZodValidation.UpdateAppointmentSchema),
   AppointmentsController.updateAppointment,
 );

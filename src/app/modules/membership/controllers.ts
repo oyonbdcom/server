@@ -24,7 +24,7 @@ const createMembership = catchAsync(async (req, res) => {
   });
 });
 
-const getClinicMemberships = catchAsync(async (req, res) => {
+const getDiagnosticMemberDoctors = catchAsync(async (req, res) => {
   const userId = req.user?.id;
 
   if (!userId) {
@@ -37,7 +37,11 @@ const getClinicMemberships = catchAsync(async (req, res) => {
   // ✅ filters (সব একসাথে)
   const filters = pick(req.query, ['searchTerm', 'clinicId', 'doctorId']);
 
-  const result = await MembershipService.getMyMemberships(userId, filters, paginationOptions);
+  const result = await MembershipService.getDiagnosticMemberDoctors(
+    userId,
+    filters,
+    paginationOptions,
+  );
 
   sendResponse<IMembershipResponse[]>(res, {
     statusCode: httpStatus.OK,
@@ -45,26 +49,6 @@ const getClinicMemberships = catchAsync(async (req, res) => {
     message: 'আপনার তৈরি করা মেম্বারশিপগুলো সফলভাবে পাওয়া গেছে',
     meta: result?.meta,
     data: result?.data,
-  });
-});
-
-const getMyDoctors = catchAsync(async (req, res) => {
-  const userId = req.user?.id;
-
-  // ইউজার আইডি না থাকলে এরর থ্রো করা
-  if (!userId) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, 'ইউজার আইডি পাওয়া যায়নি');
-  }
-
-  // সার্ভিস থেকে ডাক্তারদের লিস্ট আনা
-  const result = await MembershipService.getMyDoctors({ userId });
-
-  // রেসপন্স পাঠানো
-  sendResponse<any[]>(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'ডাক্তারদের তালিকা সফলভাবে পাওয়া গেছে',
-    data: result, // সার্ভিস থেকে আসা অ্যারে
   });
 });
 
@@ -101,8 +85,8 @@ const deleteMembership = catchAsync(async (req, res) => {
 
 export const MembershipController = {
   createMembership,
-  getClinicMemberships,
+  getDiagnosticMemberDoctors,
   updateMemberships,
-  getMyDoctors,
+
   deleteMembership,
 };

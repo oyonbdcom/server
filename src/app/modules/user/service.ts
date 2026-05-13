@@ -11,14 +11,32 @@ import { IUserResponse } from './interface';
 // current logged in   user
 const getCurrentUser = async (userId: string): Promise<IUserResponse> => {
   const user = await prisma.user.findUnique({
-    where: { id: userId },
+    where: {
+      id: userId,
+    },
+
     select: {
       id: true,
       name: true,
       phoneNumber: true,
       image: true,
+
       role: true,
+
       isDefaultPassword: true,
+
+      // =====================================================
+      // STAFF
+      // =====================================================
+
+      staff: {
+        select: {
+          id: true,
+          staffType: true,
+
+          clinicId: true,
+        },
+      },
     },
   });
 
@@ -26,9 +44,8 @@ const getCurrentUser = async (userId: string): Promise<IUserResponse> => {
     throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
   }
 
-  return user;
+  return user as IUserResponse;
 };
-
 // for admin
 const getUsers = async (
   filter: { searchTerm?: string; role?: string; isActive?: string },

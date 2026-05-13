@@ -108,6 +108,11 @@ export const resolvePatientUser = async ({
 };
 
 export const appointmentPopulate = {
+  createdBy: {
+    select: {
+      name: true,
+    },
+  },
   doctor: {
     select: {
       id: true,
@@ -148,15 +153,16 @@ export const appointmentPopulate = {
       address: true,
     },
   },
-
   medicalRecords: true,
 } satisfies Prisma.AppointmentSelect;
+
 export const generateAppointmentCode = (length: number = 8): string => {
   return Math.random()
     .toString(36)
     .substring(2, 2 + length)
     .toUpperCase();
 };
+
 export const generateTokens = (user: IUserResponse) => {
   const payload = { userId: user.id, email: user.phoneNumber, role: user.role };
   return {
@@ -164,11 +170,33 @@ export const generateTokens = (user: IUserResponse) => {
     refreshToken: jwtTokenHelper.refreshToken(payload),
   };
 };
+
 export const AppointmentsFilterableFields = [
   'status',
   'date',
+  'search',
   'district',
   'area',
   'doctorId',
   'clinicId',
 ];
+export const normalizePhone = (value: string) => {
+  if (!value) return '';
+
+  let v = value.trim();
+
+  // remove spaces, dashes
+  v = v.replace(/\s|-/g, '');
+
+  // convert 01XXXXXXXXX → +8801XXXXXXXXX
+  if (v.startsWith('01')) {
+    v = '+88' + v;
+  }
+
+  // if already 880 but no +
+  if (v.startsWith('880')) {
+    v = '+' + v;
+  }
+
+  return v;
+};
