@@ -27,10 +27,10 @@ const generateTokens = (user: IUserResponse) => {
 
 // ---------------------- AUTH SERVICES ----------------------
 // ............. register , verify email or resend verification email .................
-const register = async (data: RegisterRequest & { otp: string }): Promise<IUserResponse> => {
+const register = async (data: RegisterRequest & { otp: string }): Promise<ILoginResponse> => {
   const { phoneNumber, password, name, role, otp } = data;
 
-  // ১. OTP ভেরিফিকেশন
+  // ================= OTP VERIFY =================
   const otpRecord = await prisma.otp.findUnique({
     where: { phoneNumber },
   });
@@ -43,20 +43,41 @@ const register = async (data: RegisterRequest & { otp: string }): Promise<IUserR
     throw new ApiError(httpStatus.BAD_REQUEST, 'ওটিপি কোডটির মেয়াদ শেষ হয়ে গেছে।');
   }
 
+  // ================= EXISTING USER CHECK =================
+  const existingUser = await prisma.user.findUnique({
+    where: { phoneNumber },
+  });
+
+  if (existingUser) {
+    throw new ApiError(httpStatus.CONFLICT, 'এই নম্বর দিয়ে ইতোমধ্যে অ্যাকাউন্ট তৈরি করা হয়েছে।');
+  }
+
+  // ================= HASH PASSWORD =================
   const hashedPassword = await bcrypt.hash(password, 12);
 
-  const result = await prisma.$transaction(async (tx) => {
+  // ================= TRANSACTION =================
+  const user = await prisma.$transaction(async (tx) => {
     const newUser = await tx.user.create({
       data: {
         phoneNumber,
         password: hashedPassword,
         name: name ?? '',
         role: (role as UserRole) || 'PATIENT',
+
         isPhoneVerified: true,
       },
+
       select: USER_SELECT,
     });
 
+    // ================= DEFAULT SELF PATIENT =================
+    await tx.patient.create({
+      data: {
+        userId: newUser.id,
+      },
+    });
+
+    // ================= DELETE OTP =================
     await tx.otp.delete({
       where: { phoneNumber },
     });
@@ -64,7 +85,38 @@ const register = async (data: RegisterRequest & { otp: string }): Promise<IUserR
     return newUser;
   });
 
-  return result;
+  // ================= AUTO LOGIN =================
+  const tokens = generateTokens(user);
+
+  // ================= SAVE REFRESH TOKEN =================
+  await prisma.user.update({
+    where: {
+      id: user.id,
+    },
+
+    data: {
+      refreshToken: tokens.refreshToken,
+    },
+  });
+
+  // ================= RESPONSE =================
+  return {
+    accessToken: tokens.accessToken,
+
+    refreshToken: tokens.refreshToken,
+
+    user: {
+      id: user.id,
+
+      name: user.name,
+
+      phoneNumber: user.phoneNumber,
+
+      role: user.role,
+
+      image: user.image,
+    },
+  };
 };
 // otp verify
 const verifyOtpForExistingUser = async (payload: {

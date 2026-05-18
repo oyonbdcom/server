@@ -33,7 +33,7 @@ const getUsers = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Users retrieved successfully',
-    meta: result?.meta || null,
+    meta: result?.meta || undefined,
     data: result?.data || null,
   });
 });

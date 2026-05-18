@@ -1,9 +1,6 @@
 import { Prisma } from '@prisma/client';
-import bcrypt from 'bcrypt';
-import httpStatus from 'http-status';
 import config from '../../../config/config';
 import { jwtTokenHelper } from '../../../helper';
-import ApiError from '../../../utils/apiError';
 import { IUserResponse } from '../user/interface';
 
 interface ResolvePatientUserPayload {
@@ -30,10 +27,9 @@ export const resolvePatientUser = async ({
   patientName,
   address,
   ptAge,
-  hashedPassword,
 }: ResolvePatientUserPayload): Promise<ResolvePatientUserReturn> => {
-  // Existing user check
-  const existingUser = await tx.user.findUnique({
+  // ================= 1. FIND USER =================
+  let user = await tx.user.findUnique({
     where: {
       phoneNumber,
     },
@@ -41,69 +37,47 @@ export const resolvePatientUser = async ({
       patient: true,
     },
   });
-
-  // -----------------------------------------
-  // Existing User
-  // -----------------------------------------
-  if (existingUser) {
-    // অন্য role হলে block
-    if (existingUser.role !== 'PATIENT') {
-      throw new ApiError(httpStatus.FORBIDDEN, 'এই নম্বরটি অন্য রোলে ব্যবহার করা হয়েছে।');
-    }
-
-    // Patient profile missing হলে create
-    let patientProfile = existingUser.patient;
-
-    if (!patientProfile) {
-      patientProfile = await tx.patient.create({
-        data: {
-          userId: existingUser.id,
-          age: ptAge ? Number(ptAge) : null,
-          address: address || null,
-        },
-      });
-    }
-
-    return {
-      patientId: patientProfile.id,
-      userId: existingUser.id,
-      isNewUser: false,
-    };
+  const hashedPassword = config.default_password || 'Password@123';
+  // ================= 2. CREATE USER IF NOT EXISTS =================
+  if (!user) {
+    user = await tx.user.create({
+      data: {
+        name: patientName,
+        phoneNumber,
+        role: 'PATIENT',
+        password: hashedPassword,
+      },
+      include: {
+        patient: true,
+      },
+    });
   }
 
-  // -----------------------------------------
-  // New User Create
-  // -----------------------------------------
+  // ================= 3. FIND EXISTING PATIENT =================
+  const normalizedName = patientName.trim();
 
-  const defaultPassword = config.default_password || 'Password@123';
-
-  const password = hashedPassword || (await bcrypt.hash(defaultPassword, 12));
-
-  const newUser = await tx.user.create({
-    data: {
-      name: patientName,
-      phoneNumber,
-      password,
-      role: 'PATIENT',
-      isDefaultPassword: true,
-
-      patient: {
-        create: {
-          age: ptAge ? Number(ptAge) : null,
-          address: address || null,
-        },
-      },
-    },
-
-    include: {
-      patient: true,
+  let patient = await tx.patient.findFirst({
+    where: {
+      userId: user.id,
     },
   });
 
+  // ================= 4. CREATE PATIENT IF NOT FOUND =================
+  if (!patient) {
+    patient = await tx.patient.create({
+      data: {
+        userId: user.id,
+        age: ptAge ? Number(ptAge) : 0,
+        address: address || null,
+      },
+    });
+  }
+
+  // ================= 5. RETURN =================
   return {
-    patientId: newUser.patient!.id,
-    userId: newUser.id,
-    isNewUser: true,
+    patientId: patient.id,
+    userId: user.id,
+    isNewUser: !user,
   };
 };
 
@@ -128,18 +102,7 @@ export const appointmentPopulate = {
       specialization: true,
     },
   },
-  patient: {
-    select: {
-      id: true,
-      user: {
-        select: {
-          phoneNumber: true,
-          name: true,
-          image: true,
-        },
-      },
-    },
-  },
+  emergency: true,
   clinic: {
     select: {
       id: true,
@@ -179,6 +142,7 @@ export const AppointmentsFilterableFields = [
   'area',
   'doctorId',
   'clinicId',
+  'isEmergency',
 ];
 export const normalizePhone = (value: string) => {
   if (!value) return '';
@@ -199,4 +163,11 @@ export const normalizePhone = (value: string) => {
   }
 
   return v;
+};
+export const getAttendanceStatus = (serialNumber: number, runningSerial: number | null) => {
+  if (!runningSerial) return 'UNKNOWN';
+
+  if (serialNumber < runningSerial) return 'PRESENT'; // আগে দেখা হয়ে গেছে
+  if (serialNumber === runningSerial) return 'RUNNING'; // এখন দেখছে
+  return 'WAITING'; // এখনও আসেনি
 };

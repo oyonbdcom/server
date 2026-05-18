@@ -1,3 +1,4 @@
+import { UserRole } from '@prisma/client';
 import express from 'express';
 import { protect, restrictTo } from '../../../middlewares/authMiddleware';
 import { zodValidate } from '../../../middlewares/zodValidation';
@@ -9,7 +10,7 @@ const router = express.Router();
 router.post(
   '/',
   protect,
-  restrictTo('PATIENT'),
+  restrictTo('PATIENT', UserRole?.AREA_MANAGER),
   zodValidate(MedicalHistoryZodValidation.createMedicalHistorySchema),
   MedicalHistoryController.addMedicalHistory,
 );

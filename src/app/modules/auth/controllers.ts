@@ -4,7 +4,6 @@ import config from '../../../config/config';
 import { catchAsync } from '../../../shared/catchAsync';
 import { sendResponse } from '../../../shared/sendResponse';
 import ApiError from '../../../utils/apiError';
-import { IUserResponse } from '../user/interface';
 import { AuthService } from './service';
 
 // ==================== PUBLIC ROUTES ====================
@@ -12,8 +11,15 @@ import { AuthService } from './service';
 const register = catchAsync(async (req, res) => {
   const userData = req.body;
   const result = await AuthService.register(userData);
+  res.cookie('refreshToken', result.refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+    maxAge: 365 * 24 * 60 * 60 * 1000,
+    path: '/',
+  });
 
-  sendResponse<IUserResponse>(res, {
+  sendResponse(res, {
     statusCode: httpStatus.CREATED,
     success: true,
     message: 'User registered successfully. Please check your email to verify your account.',

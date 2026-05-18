@@ -4,93 +4,72 @@ import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
 import { IPatientResponse } from './interface';
 
-const updatePatient = async (id: string, payload: any): Promise<IPatientResponse | null> => {
-  // ১. ইউজারটি আছে কি না তা নিশ্চিত করা
-  const isUserExist = await prisma.user.findUnique({
-    where: { id },
-  });
-
-  if (!isUserExist) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
+const updatePatient = async (userId: string, payload: any) => {
+  if (!userId) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'User ID required');
   }
 
-  const { name, image, age, gender, address, area, ...patientData } = payload;
+  const result = await prisma.$transaction(async (tx) => {
+    // ================= GET USER =================
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      include: {
+        patient: true,
+      },
+    });
 
-  // ২. ইউজার আপডেট এবং পেশেন্ট প্রোফাইল Upsert (থাকলে আপডেট, না থাকলে ক্রিয়েট)
-  const result = await prisma.user.update({
-    where: { id },
-    data: {
-      name,
-      image,
-      patient: {
-        upsert: {
-          // যদি প্রোফাইল থাকে তবে এই ডাটা দিয়ে আপডেট হবে
-          update: {
-            age,
-            gender,
-            address,
-            ...(area && {
-              area: {
-                connect: { slug: area },
-              },
-            }),
-          },
-          // যদি প্রোফাইল না থাকে তবে এই ডাটা দিয়ে নতুন তৈরি হবে
-          create: {
-            age,
-            gender,
-            address,
-            ...(area && {
-              area: {
-                connect: { slug: area },
-              },
-            }),
-          },
-        },
+    if (!user) {
+      throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
+    }
+
+    const patient = user.patient;
+
+    if (!patient) {
+      throw new ApiError(httpStatus.NOT_FOUND, 'Patient profile not found');
+    }
+
+    // ================= UPDATE USER =================
+    const updatedUser = await tx.user.update({
+      where: { id: userId },
+      data: {
+        name: payload.name,
+        image: payload.image,
       },
-    },
-    // ডাটা রিটার্ন ফরম্যাট (আপনার IPatientResponse অনুযায়ী)
-    select: {
-      id: true,
-      name: true,
-      phoneNumber: true,
-      image: true,
-      role: true,
-      deactivate: true,
-      patient: {
-        select: {
-          age: true,
-          gender: true,
-          address: true,
-          area: {
-            select: {
-              name: true,
-              slug: true, // ফ্রন্টএন্ডে জেলা/এরিয়া সিঙ্ক রাখতে স্লাগ প্রয়োজন
-              district: {
-                select: {
-                  name: true,
-                  slug: true,
-                },
-              },
-            },
-          },
-        },
+      select: {
+        id: true,
+        name: true,
+        image: true,
+        phoneNumber: true,
       },
-      createdAt: true,
-      updatedAt: true,
-    },
+    });
+
+    // ================= UPDATE PATIENT =================
+    const updatedPatient = await tx.patient.update({
+      where: { id: patient.id },
+      data: {
+        age: payload.age,
+        gender: payload.gender,
+        address: payload.address,
+      },
+    });
+
+    return {
+      user: updatedUser,
+      patient: updatedPatient,
+    };
   });
 
-  return result as unknown as IPatientResponse;
+  return result;
 };
 
-const getPatientById = async (id: string): Promise<IPatientResponse | null> => {
-  if (!id) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Patient ID is required');
+const getPatientByUserId = async (userId: string): Promise<IPatientResponse | null> => {
+  if (!userId) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'User ID is required');
   }
 
-  const patient = await prisma.user.findUnique({
-    where: { id },
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+
     select: {
       id: true,
       name: true,
@@ -99,35 +78,19 @@ const getPatientById = async (id: string): Promise<IPatientResponse | null> => {
       deactivate: true,
       isPhoneVerified: true,
 
-      patient: {
-        select: {
-          area: {
-            select: {
-              name: true,
-              district: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          },
-          userId: true,
-          gender: true,
-          address: true,
-          age: true,
-        },
-      },
-
       createdAt: true,
       updatedAt: true,
+
+      // 🔥 all patient profiles
+      patient: true,
     },
   });
 
-  if (!patient) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Patient not found');
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'User not found');
   }
 
-  return patient as any;
+  return user as any;
 };
 
 // const deletePatient = async (userId: string): Promise<IPatientResponse> => {
@@ -157,7 +120,7 @@ const getPatientById = async (id: string): Promise<IPatientResponse | null> => {
 export const PatientService = {
   // getPatients,
   // getPatientStats,
-  getPatientById,
+  getPatientByUserId,
   updatePatient,
   // deletePatient,
 };

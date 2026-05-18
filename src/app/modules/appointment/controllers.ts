@@ -13,35 +13,16 @@ import { AppointmentService } from './service';
 
 const createAppointment = catchAsync(async (req, res) => {
   const appointmentData = req.body;
-  const authUser = req.user;
+  const authUser = req.user as JwtPayload;
 
   const result = await AppointmentService.createAppointment(appointmentData, authUser);
-
-  const { refreshToken, accessToken, appointment, user } = result;
-
-  // Prevents CSRF };
-
-  // 🍪 Only set cookie if refreshToken exists (guest user)
-  if (refreshToken) {
-    const cookieOptions = {
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      sameSite: true,
-    };
-
-    res.cookie('refreshToken', refreshToken, cookieOptions);
-  }
 
   // 📤 Response (token optional)
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
     success: true,
     message: 'Appointment booked successfully',
-    data: {
-      ...(accessToken && { accessToken }),
-      user,
-      appointment,
-    },
+    data: result,
   });
 });
 
@@ -140,7 +121,19 @@ const getCoordinatorDashboard = catchAsync(async (req, res) => {
 // ======================================================
 
 const requestEmergency = catchAsync(async (req, res) => {
-  const result = await AppointmentService.requestEmergency(req.params.id as string);
+  const user = req.user as JwtPayload;
+  const result = await AppointmentService.requestEmergency(user?.id, req.params.id as string);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Emergency request sent successfully',
+    data: result,
+  });
+});
+
+const acceptEmergency = catchAsync(async (req, res) => {
+  const result = await AppointmentService.acceptEmergencyAppointment(req.params.id as string);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -171,31 +164,23 @@ const completeAppointment = catchAsync(async (req, res) => {
     data: result,
   });
 });
+const updateDoctorSession = catchAsync(async (req, res) => {
+  const newStatus = req.body;
+  console.log(newStatus);
+  const user = req.user as JwtPayload;
+  const result = await AppointmentService.updateDoctorSession(
+    user.id as string,
+    newStatus?.newStatus,
+  );
 
-export const AppointmentController = {
-  requestEmergency,
-  rejectEmergency,
-  completeAppointment,
-};
-// manager appointments
-// const getManagerAreaAppointments = catchAsync(async (req, res) => {
-//   const user = (req as any).user;
-//   const filters = pick(req.query, AppointmentsFilterableFields);
-//   const options = pick(req.query, ['limit', 'page', 'sortBy', 'sortOrder']);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Doctor Session update successfully',
+    data: result,
+  });
+});
 
-//   const result = await AppointmentService.getManagerAreaAppointments(user.id, filters, options);
-
-//   sendResponse(res, {
-//     statusCode: httpStatus.OK,
-//     success: true,
-//     message: 'এরিয়া অ্যাপয়েন্টমেন্ট সফলভাবে পাওয়া গেছে',
-//     meta: result.meta,
-//     data: result.data,
-//     stats: result.stats,
-//   });
-// });
-
-// Reschedule/Update Appointment
 const updateAppointment = catchAsync(async (req, res) => {
   const aptId = req.params.aptId as string;
 
@@ -218,9 +203,11 @@ export const AppointmentsController = {
   getMyAppointments,
   rejectEmergency,
   requestEmergency,
+  acceptEmergency,
   completeAppointment,
   createAppointmentByDiagnosticStaff,
   getCoordinatorDashboard,
+  updateDoctorSession,
   createAppointment,
   updateAppointment,
 };

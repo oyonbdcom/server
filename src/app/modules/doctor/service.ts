@@ -126,15 +126,16 @@ const removeDoctorFromArea = async (doctorId: string, userId: string) => {
 const getDoctors = async (
   filter: {
     searchTerm?: string;
-    department?: string; // এটি এখন slug হিসেবে আসবে
-    district?: string; // এটি এখন slug হিসেবে আসবে
-    area?: string; // এটি এখন slug হিসেবে আসবে
+    department?: string;
+    district?: string;
+    area?: string;
     minRating?: string;
     deactivate?: string;
     gender?: 'MALE' | 'FEMALE';
     myAreaOnly?: string;
     area_doctor?: string;
     membership?: string;
+    isEmergency?: string;
   },
   options: IOptions,
   userId?: string,
@@ -149,6 +150,7 @@ const getDoctors = async (
     membership,
     district,
     area,
+    isEmergency,
     myAreaOnly,
     area_doctor,
   } = filter;
@@ -230,6 +232,12 @@ const getDoctors = async (
     const isDeactivated = deactivate === 'true';
     andConditions.push({
       user: { deactivate: isDeactivated },
+    });
+  }
+  if (isEmergency !== undefined) {
+    const emergency = isEmergency === 'true';
+    andConditions.push({
+      isEmergency: emergency,
     });
   }
   if (membership) {

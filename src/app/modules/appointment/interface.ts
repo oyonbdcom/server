@@ -1,5 +1,6 @@
 import { AppointmentStatus, PatientType } from '@prisma/client';
 import z from 'zod';
+import { IAreaResponse } from '../location/interface';
 import { IMedicalRecordResponse } from '../medical-history/interface';
 import { CreateAppointmentSchema, UpdateAppointmentSchema } from './zodValidation';
 
@@ -39,9 +40,7 @@ export interface IAppointmentResponse {
     id: string;
     name: string;
     image: string | null;
-    clinic: {
-      address: string | null;
-    } | null;
+    area: IAreaResponse;
   };
 
   medicalRecords: IMedicalRecordResponse[];

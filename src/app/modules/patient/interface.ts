@@ -1,3 +1,4 @@
+import { UserRole } from '@prisma/client';
 import z from 'zod';
 import { updatePatientSchema } from './zodValidation';
 
@@ -6,22 +7,20 @@ export type IPatientResponse = {
   name: string | null;
   phoneNumber: string;
   image: string | null;
-  role: 'PATIENT' | 'DOCTOR' | 'ADMIN' | 'MANAGER' | 'CLINIC';
+
+  role: UserRole;
   deactivate: boolean;
-  patient: {
+
+  // ================= PATIENTS ARRAY =================
+  patients: {
+    id: string;
     age: number | null;
     gender: 'MALE' | 'FEMALE' | 'OTHER' | null;
     address: string | null;
-    area: {
-      name: string | null;
-      district: {
-        name: string | null;
-      };
-    } | null;
-  } | null;
+  }[];
 
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type UpdatePatientInput = z.infer<typeof updatePatientSchema>['body'];

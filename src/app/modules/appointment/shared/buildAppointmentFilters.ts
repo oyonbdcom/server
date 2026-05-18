@@ -65,7 +65,7 @@ export const buildAppointmentFilters = (
         },
 
         {
-          phoneNumber: {
+          contactNumber: {
             contains: searchTerm,
             mode: 'insensitive',
           },

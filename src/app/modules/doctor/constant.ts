@@ -126,5 +126,6 @@ export const DoctorFilterableFields = [
   'deactivate',
   'gender',
   'area_doctor',
+  'isEmergency',
   'membership',
 ];

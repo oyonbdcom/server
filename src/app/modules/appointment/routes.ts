@@ -57,7 +57,13 @@ router.get(
 // ======================================================
 // ROUTE
 // ======================================================
+router.patch(
+  '/update-doctor-session',
+  protect,
+  restrictTo(UserRole?.STAFF),
 
+  AppointmentsController.updateDoctorSession,
+);
 router.patch(
   '/:id/request-emergency',
   protect,
@@ -75,8 +81,14 @@ router.patch(
 router.patch(
   '/:id/complete',
   protect,
-  restrictTo(UserRole.PATIENT, UserRole.STAFF),
+  restrictTo(UserRole.PATIENT, UserRole.STAFF, UserRole.AREA_MANAGER),
   AppointmentsController.completeAppointment,
+);
+router.patch(
+  '/:id/accept-emergency',
+  protect,
+  restrictTo(UserRole.AREA_MANAGER, UserRole?.STAFF),
+  AppointmentsController.acceptEmergency,
 );
 router.patch(
   '/:aptId',

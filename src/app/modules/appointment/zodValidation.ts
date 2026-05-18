@@ -2,24 +2,33 @@ import z from 'zod';
 
 export const CreateAppointmentSchema = z.object({
   body: z.object({
-    patientName: z.string().min(2, 'নাম আবশ্যক'),
-    ptAge: z.coerce.number().min(1, 'বয়স আবশ্যক'),
+    patientName: z.string().min(2, 'রোগীর নাম অন্তত ২ অক্ষরের হতে হবে'),
 
-    phoneNumber: z.string().length(14, 'মোবাইল নম্বর অবশ্যই ১১ ডিজিটের হতে হবে'),
-    address: z.string().optional().or(z.literal('')),
+    ptAge: z.coerce.number().min(1, 'সঠিক বয়স দিন'),
 
-    note: z.string().optional().or(z.literal('')),
+    phoneNumber: z.string().regex(/^(?:\+8801|01)[3-9]\d{8}$/, 'সঠিক বাংলাদেশি মোবাইল নম্বর দিন'),
+    consultationFee: z.coerce.number().optional(),
 
-    appointmentDate: z.string().min(1, 'তারিখ সিলেক্ট করুন'),
+    appointmentDate: z.string().refine((val) => !isNaN(Date.parse(val)), {
+      message: 'সঠিক তারিখ প্রদান করুন',
+    }),
 
-    // সার্ভার সাইডে এগুলো ডাটাবেজ রিলেশনের জন্য প্রয়োজন হয়
-    otp: z.string().min(6, "ওটিপি আবশ্যক'").optional(),
+    address: z.string().min(3, 'ঠিকানা লিখুন').optional(),
 
-    doctorId: z.string().min(1, "ডাক্তার আইডি আবশ্যক'"),
-    clinicId: z.string().min(1, 'ক্লিনিক আইডি আবশ্যক'),
-    membershipId: z.string().min(1, 'ক্লিনিক আইডি আবশ্যক'),
+    doctorId: z.string().min(2, 'ডাক্তার সিলেক্ট করা নেই'),
+
+    isEmergency: z.boolean().default(false),
+
+    clinicId: z.string().optional(),
+    membershipId: z.string().optional(),
+
+    // 🔥 FLAT emergency fields
+    transactionId: z.string().min(6, 'TrxID দিতে হবে').optional(),
+    paymentMethod: z.enum(['BKASH', 'NAGAD', 'ROCKET']).optional(),
+    emergencyType: z.enum(['PLATFORM', 'COORDINATOR']).optional(),
   }),
 });
+export type IAppointmentForm = z.infer<typeof CreateAppointmentSchema>;
 
 export const UpdateAppointmentSchema = z.object({
   body: z.object({

@@ -11,11 +11,11 @@ const router = express.Router();
  * @access  Private (Admin, Doctor, or the Patient themselves)
  */
 router.get(
-  '/:id',
+  '/me',
   protect,
   // Doctors can view records, Admins manage all, Patients view their own
   restrictTo('ADMIN', 'DOCTOR', 'PATIENT'),
-  PatientController.getPatientById,
+  PatientController.getPatientByUserId,
 );
 
 /**

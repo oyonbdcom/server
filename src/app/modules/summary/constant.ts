@@ -14,14 +14,7 @@ export const appointmentPopulate = {
       specialization: true,
     },
   },
-  patient: {
-    select: {
-      id: true,
-      user: {
-        select: { name: true, image: true, id: true, phoneNumber: true },
-      },
-    },
-  },
+
   clinic: {
     select: {
       id: true,

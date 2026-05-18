@@ -5,13 +5,13 @@ import ApiError from '../../../utils/apiError';
 import { IPatientResponse } from './interface';
 import { PatientService } from './service';
 
-const getPatientById = catchAsync(async (req, res) => {
+const getPatientByUserId = catchAsync(async (req, res) => {
   const userId = req?.user?.id;
   if (!userId) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
 
-  const result = await PatientService.getPatientById(userId);
+  const result = await PatientService.getPatientByUserId(userId);
 
   sendResponse<IPatientResponse>(res, {
     statusCode: httpStatus.OK,
@@ -35,11 +35,11 @@ const updatePatient = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Patient updated successfully',
-    data: result,
+    data: result as any,
   });
 });
 
 export const PatientController = {
-  getPatientById,
+  getPatientByUserId,
   updatePatient,
 };

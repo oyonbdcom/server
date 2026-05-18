@@ -42,6 +42,14 @@ enum PatientType {
   EMERGENCY
 }
 
+enum RelationType {
+  SELF
+  MOTHER
+  FAThER
+  BROTHER
+  UNCLE
+}
+
 enum AppointmentSource {
   PLATFORM
   STAFF
@@ -59,6 +67,19 @@ enum PaymentStatus {
   PENDING
   PAID
   FAILED
+}
+
+enum EmergencyStatus {
+  PENDING
+  ACCEPT
+  REJECTED
+}
+
+enum DoctorSessionStatus {
+  ABSENT
+  ACTIVE
+  PAUSED
+  ENDED
 }
 
 enum Gender {
@@ -88,7 +109,6 @@ model Area {
   managers Manager[]
   clinics  Clinic[]
   doctors  DoctorArea[]
-  patient  Patient[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -100,37 +120,42 @@ model Area {
 // --- Core User Model ---
 
 model User {
-  id                String   @id @default(cuid())
-  name              String
-  phoneNumber       String   @unique
-  password          String
-  image             String?
-  role              UserRole @default(PATIENT)
-  isPhoneVerified   Boolean  @default(false)
-  deactivate        Boolean  @default(false)
-  refreshToken      String?
-  isDefaultPassword Boolean  @default(false)
+  id          String  @id @default(cuid())
+  name        String
+  phoneNumber String  @unique
+  password    String
+  image       String?
 
-  // প্রোফাইল লিঙ্ক
+  role UserRole @default(PATIENT)
+
+  isPhoneVerified Boolean @default(false)
+  deactivate      Boolean @default(false)
+
+  refreshToken      String?
+  isDefaultPassword Boolean @default(false)
+
   doctor  Doctor?
-  patient Patient?
   clinic  Clinic?
   manager Manager?
-  // createdMemberships Membership[] @relation("MembershipCreator")
+  staff   Staff?
+
+  patient Patient?
+
+  // 🔥 Who created appointments
+  createdAppointments Appointment[] @relation("AppointmentCreator")
+
+  emergencyRequests EmergencyRequest[]
 
   deviceTokens DeviceToken[]
 
-  staff Staff?
+  reviewsWritten Review[]      @relation("UserReviews")
+  reviewReplies  ReviewReply[]
+  feedbacks      Feedback[]
 
-  createdMemberships  Membership[]  @relation("MembershipCreator")
-  createdAppointments Appointment[] @relation("AppointmentCreator")
-  reviewsWritten      Review[]      @relation("UserReviews")
+  createdMemberships Membership[] @relation("MembershipCreator")
 
-  reviewReplies     ReviewReply[]
-  feedbacks         Feedback[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  emergencyRequests EmergencyRequest[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Otp {
@@ -184,6 +209,7 @@ model Doctor {
   hospital       String?       @db.Text
   gender         Gender?       @default(MALE)
   experience     Int           @default(0)
+  isEmergency    Boolean       @default(false)
   areas          DoctorArea[]
   memberships    Membership[]
   reviews        Review[]
@@ -241,6 +267,23 @@ model Staff {
   @@index([assignedDoctorId])
 }
 
+model DoctorSession {
+  id String @id @default(cuid())
+
+  doctorId      String
+  clinicId      String
+  runningSerial Int                 @default(0)
+  status        DoctorSessionStatus @default(ABSENT)
+
+  startedAt DateTime?
+  pausedAt  DateTime?
+  endedAt   DateTime?
+
+  updatedAt DateTime @updatedAt
+
+  @@index([doctorId, clinicId])
+}
+
 // --- Appointments & Schedules ---
 
 model Membership {
@@ -284,35 +327,50 @@ model AppointmentCounter {
 model Appointment {
   id              String            @id @default(cuid())
   patientName     String
-  ptAge           String
-  type            PatientType       @default(NORMAL)
-  phoneNumber     String
-  address         String?
-  note            String?
+  age             Int
   appointmentDate DateTime
-  createdById     String?
-  createdBy       User?             @relation("AppointmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  source          AppointmentSource @default(PLATFORM)
+  contactNumber   String
   serialNumber    Int
+  source          AppointmentSource @default(PLATFORM)
   status          AppointmentStatus @default(SCHEDULED)
+  address         String?
+  // =================================================
+  // DOCTOR
+  // =================================================
+  isEmergency     Boolean           @default(false)
   doctorId        String
   doctor          Doctor            @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  clinicId        String
-  clinic          Clinic            @relation(fields: [clinicId], references: [id], onDelete: Cascade)
-  patientId       String
-  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  medicalRecords   MedicalRecord[]
-  emergency        EmergencyRequest?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  membership       Membership?       @relation(fields: [membershipId], references: [id])
-  membershipId     String?
-  emergencyRequest EmergencyRequest?
+  // =================================================
+  // CLINIC
+  // =================================================
 
-  @@unique([doctorId, appointmentDate, serialNumber])
+  clinicId String?
+  clinic   Clinic? @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  // =================================================
+  // WHO CREATED THIS APPOINTMENT
+  // =================================================
+
+  createdById String
+  createdBy   User   @relation("AppointmentCreator", fields: [createdById], references: [id])
+
+  // =================================================
+  // OPTIONAL EMERGENCY
+  // =================================================
+
+  emergency EmergencyRequest?
+
+  medicalRecords MedicalRecord[]
+
+  membershipId String?
+  membership   Membership? @relation(fields: [membershipId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([doctorId, appointmentDate])
-  @@index([patientId, appointmentDate])
+  @@index([createdById])
 }
 
 model EmergencyRequest {
@@ -321,16 +379,32 @@ model EmergencyRequest {
   appointmentId String      @unique
   appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
-  type EmergencyType
-
-  transactionId String?
-  paymentStatus PaymentStatus @default(PENDING)
+  type            EmergencyType
+  status          EmergencyStatus @default(PENDING)
+  paymentMethod   String?
+  consultationFee Int?
+  transactionId   String?
+  paymentStatus   PaymentStatus   @default(PENDING)
 
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Patient {
+  id      String  @id @default(cuid())
+  age     Int     @default(0)
+  gender  Gender  @default(MALE)
+  address String?
+  userId  String  @unique
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, age])
 }
 
 // --- Feedback System ---
@@ -374,20 +448,6 @@ model ReviewReply {
   repliedBy   User     @relation(fields: [repliedById], references: [id], onDelete: Cascade)
   updatedAt   DateTime @updatedAt
   createdAt   DateTime @default(now())
-}
-
-model Patient {
-  id           String        @id @default(cuid())
-  userId       String        @unique
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  age          Int?
-  gender       Gender?       @default(MALE)
-  address      String?
-  appointments Appointment[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  area         Area?         @relation(fields: [areaId], references: [id])
-  areaId       String?
 }
 
 model DeviceToken {
