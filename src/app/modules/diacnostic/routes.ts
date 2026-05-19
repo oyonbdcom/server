@@ -16,6 +16,7 @@ router.post(
 );
 
 router.get('/', DiagnosticController.getDiagnostics);
+router.get('/:slug', DiagnosticController.getDiagnosticBySlug);
 router.get(
   '/statistics',
   protect,
@@ -23,7 +24,12 @@ router.get(
   DiagnosticController.getDiagnosticManagerStats,
 );
 
-router.get('/single', protect, DiagnosticController.getSingleDiagnostic);
+router.get(
+  '/single',
+  protect,
+  restrictTo(UserRole?.DIAGNOSTIC_MANAGER),
+  DiagnosticController.getSingleDiagnostic,
+);
 router.get(
   '/area-diagnostic',
   protect,

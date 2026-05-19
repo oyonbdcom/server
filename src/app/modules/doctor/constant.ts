@@ -41,6 +41,7 @@ export const DOCTOR_SELECT = {
               image: true,
             },
           },
+          slug: true,
           area: {
             select: {
               name: true,

@@ -36,7 +36,28 @@ const getDiagnostics = catchAsync(async (req, res) => {
     data: result?.data || null,
   });
 });
+const getDiagnosticBySlug = catchAsync(async (req, res) => {
+  const slug = req.params?.slug as string;
 
+  // 1. Call the specific service method for a single record
+  const result = await DiagnosticService.getDiagnosticBySlug(slug);
+
+  if (!result) {
+    return sendResponse(res, {
+      statusCode: httpStatus.NOT_FOUND,
+      success: false,
+      message: 'Clinic not found or is currently inactive',
+      data: null,
+    });
+  }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Clinic retrieved successfully',
+    data: result,
+  });
+});
 const getAllAreaDiagnostics = catchAsync(async (req, res) => {
   const paginationOptions = pick(req.query, paginationFields);
   const filter = pick(req.query, DiagnosticFilterableFields);
@@ -121,7 +142,7 @@ export const DiagnosticController = {
   getDiagnosticManagerStats,
   deleteDiagnostic,
   getSingleDiagnostic,
-
+  getDiagnosticBySlug,
   getAllAreaDiagnostics,
   updateDiagnostic,
 };

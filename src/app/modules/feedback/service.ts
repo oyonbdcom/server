@@ -67,9 +67,6 @@ const createFeedback = async (
 };
 const getFeedbacks = async () => {
   const result = await prisma.feedback.findMany({
-    where: {
-      status: 'APPROVED',
-    },
     orderBy: {
       createdAt: 'desc',
     },

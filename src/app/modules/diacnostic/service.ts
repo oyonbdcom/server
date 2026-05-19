@@ -146,6 +146,66 @@ const getDiagnostics = async (
     data: data as unknown as IDiagnosticResponse[],
   };
 };
+const getDiagnosticBySlug = async (slug: string): Promise<IDiagnosticResponse | null> => {
+  if (!slug || slug.length > 100) {
+    throw new Error('Invalid slug format.');
+  }
+
+  const result = await prisma.clinic.findUnique({
+    where: {
+      slug: slug.trim(),
+    },
+
+    select: {
+      id: true,
+
+      slug: true,
+      address: true,
+      user: {
+        select: {
+          name: true,
+        },
+      },
+      memberships: {
+        select: {
+          doctor: {
+            select: {
+              department: {
+                select: {
+                  name: true,
+                },
+              },
+              id: true,
+              averageRating: true,
+              slug: true,
+              user: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+          clinic: {
+            select: {
+              id: true,
+            },
+          },
+          schedules: true,
+          fee: true,
+          discount: true,
+        },
+      },
+      area: true,
+      website: true,
+      userId: true,
+      createdAt: true,
+      updatedAt: true,
+      areaId: true,
+    },
+  });
+
+  return result as any;
+};
 
 const staffRoleLabels = {
   COORDINATOR: 'কো-অর্ডিনেটর',
@@ -587,7 +647,7 @@ const deleteDiagnostic = async (id: string, user: { id: string; role: string }):
 export const DiagnosticService = {
   createDiagnostic,
   getDiagnostics,
-
+  getDiagnosticBySlug,
   getSingleDiagnostic,
 
   getDiagnosticManagerStats,

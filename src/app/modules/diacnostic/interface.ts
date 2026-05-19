@@ -3,7 +3,6 @@ import z from 'zod';
 import { IAppointmentResponse } from '../appointment/interface';
 import { IAreaResponse } from '../location/interface';
 import { IReviewResponse } from '../review/interface';
-import { IUserResponse } from '../user/interface';
 import { createDiagnosticSchema, updateDiagnosticSchema } from './zodValidation';
 
 export interface IDistrict {
@@ -17,7 +16,7 @@ export interface IDistrict {
 export interface IDiagnosticResponse {
   id: string;
   userId: string;
-  user: IUserResponse;
+
   name: string;
   slug: string;
   address: string;
