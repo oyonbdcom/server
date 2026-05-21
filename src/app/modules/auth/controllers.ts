@@ -15,6 +15,7 @@ const register = catchAsync(async (req, res) => {
     httpOnly: true,
     secure: true, // মাস্ট (HTTPS এর জন্য)
     sameSite: 'none', // মাস্ট (Cross-origin এর জন্য)
+    domain: 'sothik.vercel.app',
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/',
   });
@@ -33,6 +34,7 @@ const login = catchAsync(async (req, res) => {
     httpOnly: true,
     secure: true, // মাস্ট (HTTPS এর জন্য)
     sameSite: 'none', // মাস্ট (Cross-origin এর জন্য)
+    domain: 'sothik.vercel.app',
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/',
   });
