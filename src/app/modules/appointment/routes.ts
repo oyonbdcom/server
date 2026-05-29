@@ -18,7 +18,7 @@ router.post(
 router.post(
   '/staff-apt-create',
   protect,
-  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.STAFF),
+  restrictTo(UserRole.DIAGNOSTIC, UserRole.STAFF),
   // zodValidate(AppointmentZodValidation.CreateAppointmentSchema),
   AppointmentsController.createAppointmentByDiagnosticStaff,
 );
@@ -34,7 +34,7 @@ router.get(
   '/',
   protect,
   restrictTo(
-    UserRole.DIAGNOSTIC_MANAGER,
+    UserRole.DIAGNOSTIC,
     UserRole.ADMIN,
     UserRole.PATIENT,
     UserRole.AREA_MANAGER,
@@ -93,7 +93,7 @@ router.patch(
 router.patch(
   '/:aptId',
   protect,
-  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.ADMIN, UserRole.AREA_MANAGER, UserRole?.STAFF),
+  restrictTo(UserRole.DIAGNOSTIC, UserRole.ADMIN, UserRole.AREA_MANAGER, UserRole?.STAFF),
   zodValidate(AppointmentZodValidation.UpdateAppointmentSchema),
   AppointmentsController.updateAppointment,
 );

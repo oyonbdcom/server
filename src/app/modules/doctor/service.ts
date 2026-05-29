@@ -9,7 +9,7 @@ import ApiError from '../../../utils/apiError';
 
 import config from '../../../config/config';
 import { createSlug } from '../../../utils/createSlug';
-import { AREA_DOCTOR_SELECT, DOCTOR_SELECT } from './constant';
+import { AREA_DOCTOR_SELECT, DOCTOR_SELECT, EMERGENCY_DOCTOR_SELECT } from './constant';
 import { IDoctorResponse } from './interface';
 import { CreateDoctorInput } from './zodValidation';
 
@@ -29,15 +29,14 @@ const createDoctor = async (doctorData: CreateDoctorInput): Promise<IDoctorRespo
           password: hashedPassword,
           role: UserRole.DOCTOR,
           image: doctorData.user.image || null,
+
           deactivate: doctorData.user.deactivate ?? false,
           isPhoneVerified: doctorData.user.isPhoneVerified ?? false,
         },
       },
 
-      // --- Doctor Fields ---
-      // স্লাগ যদি ফ্রন্টএন্ড থেকে আসে তবে সেটা ব্যবহার করুন, নাহলে জেনারেট করুন
       slug: doctorData.slug || createSlug(doctorData.user.name),
-
+      isEmergency: doctorData?.isEmergency,
       specialization: doctorData.specialization,
       experience: doctorData.experience,
       hospital: doctorData.hospital,
@@ -195,9 +194,8 @@ const getDoctors = async (
       areas: {
         some: {
           area: {
-            // জেলা স্লাগ দিয়ে ফিল্টার
             district: district ? { slug: { equals: district } } : undefined,
-            // এরিয়া স্লাগ দিয়ে ফিল্টার
+
             slug: area ? { equals: area } : undefined,
           },
         },
@@ -259,7 +257,11 @@ const getDoctors = async (
       skip,
       take: limit,
       orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
-      select: area_doctor ? AREA_DOCTOR_SELECT : DOCTOR_SELECT,
+      select: isEmergency
+        ? EMERGENCY_DOCTOR_SELECT
+        : area_doctor
+          ? AREA_DOCTOR_SELECT
+          : DOCTOR_SELECT,
     }),
     prisma.doctor.count({ where: whereCondition }),
   ]);
@@ -277,7 +279,7 @@ const getAreaAndDiagnosticDoctors = async (userId: string): Promise<any[]> => {
     where: { id: userId },
     include: {
       manager: true,
-      clinic: true,
+      diagnostic: true,
       staff: true,
     },
   });
@@ -300,10 +302,10 @@ const getAreaAndDiagnosticDoctors = async (userId: string): Promise<any[]> => {
       select: { doctorId: true },
     });
 
-    const clinicMembershipDoctors = await prisma.membership.findMany({
+    const diagnosticMembershipDoctors = await prisma.membership.findMany({
       where: {
         active: true,
-        clinic: { areaId: areaId },
+        diagnostic: { areaId: areaId },
       },
       select: { doctorId: true },
     });
@@ -311,20 +313,20 @@ const getAreaAndDiagnosticDoctors = async (userId: string): Promise<any[]> => {
     allUniqueDoctorIds = Array.from(
       new Set([
         ...areaDoctors.map((d) => d.doctorId),
-        ...clinicMembershipDoctors.map((m) => m.doctorId),
+        ...diagnosticMembershipDoctors.map((m) => m.doctorId),
       ]),
     );
   }
 
   // ==========================================
-  // ২. DIAGNOSTIC MANAGER / CLINIC USER: তার নিজের ক্লিনিকের মেম্বার ডাক্তার
+  // ২. DIAGNOSTIC MANAGER / Diagnostic USER: তার নিজের ক্লিনিকের মেম্বার ডাক্তার
   // ==========================================
-  else if (user.role === 'DIAGNOSTIC_MANAGER') {
-    const clinicId = user.clinic?.id; // সরাসরি ইউজার থেকে ক্লিনিক আইডি
-    if (!clinicId) throw new ApiError(403, 'আপনার কোনো ক্লিনিক প্রোফাইল পাওয়া যায়নি');
+  else if (user.role === 'DIAGNOSTIC') {
+    const diagId = user.diagnostic?.id; // সরাসরি ইউজার থেকে ক্লিনিক আইডি
+    if (!diagId) throw new ApiError(403, 'আপনার কোনো ক্লিনিক প্রোফাইল পাওয়া যায়নি');
 
     const memberships = await prisma.membership.findMany({
-      where: { clinicId, active: true },
+      where: { diagId, active: true },
       select: { doctorId: true },
     });
 
@@ -335,11 +337,11 @@ const getAreaAndDiagnosticDoctors = async (userId: string): Promise<any[]> => {
   // ৩. STAFF: যে ক্লিনিকে সে কর্মরত, সেই ক্লিনিকের মেম্বার ডাক্তার
   // ==========================================
   else if (user.role === 'STAFF') {
-    const clinicId = user.staff?.clinicId;
-    if (!clinicId) throw new ApiError(403, 'আপনার কর্মরত ক্লিনিক খুঁজে পাওয়া যায়নি');
+    const diagId = user.staff?.diagId;
+    if (!diagId) throw new ApiError(403, 'আপনার কর্মরত ক্লিনিক খুঁজে পাওয়া যায়নি');
 
     const memberships = await prisma.membership.findMany({
-      where: { clinicId, active: true },
+      where: { diagId, active: true },
       select: { doctorId: true },
     });
 
@@ -376,61 +378,20 @@ const getAreaAndDiagnosticDoctors = async (userId: string): Promise<any[]> => {
     specialization: doc.specialization,
   }));
 };
-// const getDoctorStats = async (): Promise<IDoctorStats> => {
-//   const [activeCount, inactiveCount, departmentStats] = await Promise.all([
-//     // Count based on the 'active' boolean in Doctor model
-//     prisma.doctor.count({
-//       where: { active: true },
-//     }),
 
-//     // Count based on 'active' boolean being false
-//     prisma.doctor.count({
-//       where: { active: false },
-//     }),
-
-//     // Grouping by department
-//     prisma.doctor.groupBy({
-//       by: ['department'],
-//       _count: {
-//         id: true,
-//       },
-
-//       where: {
-//         department: { not: '' },
-//       },
-//     }),
-//   ]);
-
-//   return {
-//     total: activeCount + inactiveCount,
-//     active: activeCount,
-//     inactive: inactiveCount,
-//     departments: departmentStats.map((d) => ({
-//       name: d.department, // No 'as string' needed now as it's required in schema
-//       count: d._count.id,
-//     })),
-//   };
-// };
-
-export const getDoctorById = async (
-  identifier: string,
-  page: number = 1,
-  limit: number = 10,
-): Promise<IDoctorResponse & { membershipsCount: number }> => {
+export const getDoctorById = async (identifier: string): Promise<IDoctorResponse> => {
   if (!identifier) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'আইডি বা স্ল্যাগ প্রদান করা বাধ্যতামূলক');
   }
 
-  const skip = (page - 1) * limit;
-
-  // ১. প্রথমে ডাক্তার ফেচ করুন (মেম্বারশিপ ছাড়া)
+  // ১. প্রথমে ডাক্তার ফেচ করুন (মেম্বারশিপ ছাড়া)
   const doctor = await prisma.doctor.findFirst({
     where: {
       OR: [{ userId: identifier }, { slug: identifier }],
     },
     select: {
       ...DOCTOR_SELECT,
-      memberships: false,
+      memberships: false, // ডিফল্ট সিলেকশন থেকে মেম্বারশিপ বাদ দেওয়া হয়েছে
     },
   });
 
@@ -438,23 +399,7 @@ export const getDoctorById = async (
     throw new ApiError(httpStatus.NOT_FOUND, 'কাঙ্ক্ষিত ডাক্তারকে খুঁজে পাওয়া যায়নি');
   }
 
-  // ২. মেম্বারশিপের জন্য আলাদা পেজিনেটেড কোয়েরি
-  const [memberships, totalMemberships] = await Promise.all([
-    prisma.membership.findMany({
-      where: { doctorId: doctor.id },
-      skip,
-      take: limit,
-      select: DOCTOR_SELECT.memberships.select,
-      orderBy: { discount: 'desc' },
-    }),
-    prisma.membership.count({ where: { doctorId: doctor.id } }),
-  ]);
-
-  return {
-    ...doctor,
-    memberships,
-    membershipsCount: totalMemberships, // ফ্রন্টএন্ডে পেজিনেশন দেখানোর জন্য
-  } as any;
+  return doctor as any;
 };
 
 const updateDoctor = async (doctorId: string, payload: any): Promise<any> => {

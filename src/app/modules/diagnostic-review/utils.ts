@@ -1,12 +1,12 @@
 import { Prisma } from '@prisma/client';
 
 export const recallRating = async (
-  doctorId: string,
+  diagId: string,
 
   tx: Prisma.TransactionClient,
 ) => {
-  const stats = await tx.review.aggregate({
-    where: { doctorId, status: 'APPROVED' },
+  const stats = await tx.diagnosticReview.aggregate({
+    where: { diagId, status: 'APPROVED' },
     _avg: { rating: true },
     _count: { rating: true },
   });
@@ -16,8 +16,8 @@ export const recallRating = async (
     reviewsCount: stats._count.rating,
   };
 
-  await tx.doctor.update({
-    where: { id: doctorId },
+  await tx.diagnostic.update({
+    where: { id: diagId },
     data,
   });
   return;

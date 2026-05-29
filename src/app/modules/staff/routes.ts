@@ -8,8 +8,8 @@ const router = express.Router();
 router.post(
   '/',
   protect,
-  restrictTo('ADMIN', UserRole.DIAGNOSTIC_MANAGER),
-  // zodValidate(ClinicZodValidation.createClinicSchema),
+  restrictTo('ADMIN', UserRole.DIAGNOSTIC),
+  // zodValidate(DiagnosticZodValidation.createDiagnosticSchema),
   StaffController.createStaff,
 );
 

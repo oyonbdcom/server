@@ -1,6 +1,9 @@
 import z from 'zod';
+import { IDiagnosticResponse } from '../diacnostic/interface';
+import { IDoctorResponse } from '../doctor/interface';
+import { IScheduleResponse } from '../schedule/interface';
 import { IUserResponse } from '../user/interface';
-import { createMembershipSchema, updateClinicMembershipSchema } from './zodValidation';
+import { createMembershipSchema, updateDiagnosticMembershipSchema } from './zodValidation';
 
 export interface IMemberDoctor {
   id: string;
@@ -18,11 +21,11 @@ export interface IMembershipResponse {
   discount: number;
   createdAt: Date;
   updatedAt: Date;
-  doctor?: any | null;
-  clinic?: any;
-  schedules?: any[];
+  doctor?: IDoctorResponse | null;
+  diagnostic?: IDiagnosticResponse;
+  schedules?: IScheduleResponse[];
 }
 export type CreateMembershipInput = z.infer<typeof createMembershipSchema>['body'];
-export type UpdateMembershipInput = z.infer<typeof updateClinicMembershipSchema>['body'];
+export type UpdateMembershipInput = z.infer<typeof updateDiagnosticMembershipSchema>['body'];
 
 export const MembershipFilterableFields = ['joinAt'];

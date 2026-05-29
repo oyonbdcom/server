@@ -31,7 +31,7 @@ export const updateFeedbackStatusSchema = z.object({
   },
 });
 
-export const ReviewZodValidation = {
+export const DoctorReviewZodValidation = {
   createReviewSchema,
   updateReviewSchema,
   createFeedbackSchema,

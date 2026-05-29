@@ -21,7 +21,7 @@ export const doctorSchema = z.object({
   gender: z.nativeEnum(Gender).default(Gender.MALE),
 
   experience: z.coerce.number().min(0, 'অভিজ্ঞতা ০ বা তার বেশি হতে হবে'),
-
+  isEmergency: z.boolean().default(false), // ডিফল্টভাবে এটি ফলস থাকবে
   hospital: z
     .string()
     .min(1, 'হসপিটালের নাম দিন')

@@ -19,12 +19,13 @@ export const CreateAppointmentSchema = z.object({
 
     isEmergency: z.boolean().default(false),
 
-    clinicId: z.string().optional(),
+    diagId: z.string().optional(),
     membershipId: z.string().optional(),
 
     // 🔥 FLAT emergency fields
     transactionId: z.string().min(6, 'TrxID দিতে হবে').optional(),
     paymentMethod: z.enum(['BKASH', 'NAGAD', 'ROCKET']).optional(),
+    paymentStatus: z.enum(['PENDING', 'PAID', 'FAILED']).optional(),
     emergencyType: z.enum(['PLATFORM', 'COORDINATOR']).optional(),
   }),
 });

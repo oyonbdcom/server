@@ -15,7 +15,7 @@ const createDiagnostic = catchAsync(async (req, res) => {
   sendResponse<IDiagnosticResponse>(res, {
     statusCode: httpStatus.CREATED,
     success: true,
-    message: 'Clinic created successfully',
+    message: 'Diagnostic created successfully',
 
     data: result || null,
   });
@@ -31,22 +31,22 @@ const getDiagnostics = catchAsync(async (req, res) => {
   sendResponse<IDiagnosticResponse[]>(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Clinics retrieved successfully',
+    message: 'Diagnostics retrieved successfully',
     meta: result?.meta || undefined,
     data: result?.data || null,
   });
 });
-const getDiagnosticBySlug = catchAsync(async (req, res) => {
-  const slug = req.params?.slug as string;
+const getDiagnosticByIdentifier = catchAsync(async (req, res) => {
+  const identifier = req.params?.identifier as string;
 
   // 1. Call the specific service method for a single record
-  const result = await DiagnosticService.getDiagnosticBySlug(slug);
+  const result = await DiagnosticService.getDiagnosticByIdentifier(identifier);
 
   if (!result) {
     return sendResponse(res, {
       statusCode: httpStatus.NOT_FOUND,
       success: false,
-      message: 'Clinic not found or is currently inactive',
+      message: 'Diagnostic not found or is currently inactive',
       data: null,
     });
   }
@@ -54,7 +54,7 @@ const getDiagnosticBySlug = catchAsync(async (req, res) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Clinic retrieved successfully',
+    message: 'Diagnostic retrieved successfully',
     data: result,
   });
 });
@@ -85,32 +85,16 @@ const getDiagnosticManagerStats = catchAsync(async (req, res) => {
   sendResponse<IDiagnosticManagerStats>(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Clinic statics retrieved successfully',
-    data: result,
-  });
-});
-
-const getSingleDiagnostic = catchAsync(async (req, res) => {
-  const userId = req.user?.id;
-  if (!userId) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
-  }
-  const result = await DiagnosticService.getSingleDiagnostic(userId);
-
-  sendResponse<IDiagnosticResponse>(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Diagnostic retrieved successfully',
-
+    message: 'Diagnostic statics retrieved successfully',
     data: result,
   });
 });
 
 // update
 const updateDiagnostic = catchAsync(async (req, res) => {
-  const clinicId = req.params.clinicId as string;
+  const diagId = req.params.diagId as string;
 
-  const result = await DiagnosticService.updateDiagnostic(clinicId, req.body);
+  const result = await DiagnosticService.updateDiagnostic(diagId, req.body);
   sendResponse<IDiagnosticResponse>(res, {
     statusCode: httpStatus.OK,
     success: true,
@@ -120,12 +104,12 @@ const updateDiagnostic = catchAsync(async (req, res) => {
 });
 
 const deleteDiagnostic = catchAsync(async (req, res) => {
-  const clinicId = req.params.clinicId as string;
+  const diagId = req.params.diagId as string;
   const user = req.user;
   if (!user) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'UNAUTHORIZED');
   }
-  const deletedDoctor = await DiagnosticService.deleteDiagnostic(clinicId, user);
+  const deletedDoctor = await DiagnosticService.deleteDiagnostic(diagId, user);
 
   sendResponse<IDiagnosticResponse>(res, {
     statusCode: httpStatus.OK,
@@ -138,11 +122,9 @@ const deleteDiagnostic = catchAsync(async (req, res) => {
 export const DiagnosticController = {
   createDiagnostic,
   getDiagnostics,
-
   getDiagnosticManagerStats,
   deleteDiagnostic,
-  getSingleDiagnostic,
-  getDiagnosticBySlug,
+  getDiagnosticByIdentifier,
   getAllAreaDiagnostics,
   updateDiagnostic,
 };

@@ -4,7 +4,7 @@ import prisma from '../../../prisma/client';
 // create staff
 
 interface ICreateStaffPayload {
-  clinicId: string;
+  diagId: string;
   user: {
     name: string;
     phoneNumber: string;
@@ -18,7 +18,7 @@ interface ICreateStaffPayload {
 const createStaff = async (userId: string, payload: ICreateStaffPayload) => {
   const { user, staffType, assignedDoctorId } = payload;
 
-  const clinic = await prisma.clinic.findUnique({
+  const diagnostic = await prisma.diagnostic.findUnique({
     where: {
       userId,
     },
@@ -33,11 +33,11 @@ const createStaff = async (userId: string, payload: ICreateStaffPayload) => {
     },
   });
 
-  if (!clinic) {
+  if (!diagnostic) {
     throw new Error('ক্লিনিক পাওয়া যায়নি');
   }
 
-  const clinicId = clinic.id;
+  const diagId = diagnostic.id;
 
   // 2. CHECK PHONE ALREADY EXISTS
   const existingUser = await prisma.user.findUnique({
@@ -68,7 +68,7 @@ const createStaff = async (userId: string, payload: ICreateStaffPayload) => {
     const staff = await tx.staff.create({
       data: {
         userId: createdUser.id,
-        clinicId,
+        diagId,
         staffType,
         assignedDoctorId: assignedDoctorId || null,
       },

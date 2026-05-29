@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 
-export const CLINIC_SELECT = {
+export const DIAGNOSTIC_SELECT = {
   id: true,
   userId: true,
 
@@ -38,17 +38,23 @@ export const CLINIC_SELECT = {
       },
     },
   },
-} satisfies Prisma.ClinicSelect;
-export interface IClinicFilterRequest {
+} satisfies Prisma.DiagnosticSelect;
+export interface IDiagnosticFilterRequest {
   searchTerm?: string;
   deactivate?: string;
   minRating?: string;
   area?: string;
   district?: string;
 }
-export const ClinicFilterableFields = ['searchTerm', 'deactivate', 'district', 'area', 'minRating'];
+export const DiagnosticFilterableFields = [
+  'searchTerm',
+  'deactivate',
+  'district',
+  'area',
+  'minRating',
+];
 
-export interface IClinicFilterRequest {
+export interface IDiagnosticFilterRequest {
   searchTerm?: string;
   deactivate?: string;
   districtId?: string;

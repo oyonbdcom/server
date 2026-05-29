@@ -21,15 +21,15 @@ export const SummaryService = {
       where: { areaId },
     });
 
-    // 🏥 Clinics in area
-    const totalClinics = await prisma.clinic.count({
+    // 🏥 Diagnostic in area
+    const totalDiagnostics = await prisma.diagnostic.count({
       where: { areaId },
     });
 
     // 👨‍⚕️ Active memberships
     const totalMemberships = await prisma.membership.count({
       where: {
-        clinic: {
+        diagnostic: {
           areaId,
         },
       },
@@ -38,7 +38,7 @@ export const SummaryService = {
     // 📅 Appointments stats
     const totalAppointments = await prisma.appointment.count({
       where: {
-        clinic: {
+        diagnostic: {
           areaId,
         },
       },
@@ -47,7 +47,7 @@ export const SummaryService = {
     const completedAppointments = await prisma.appointment.count({
       where: {
         status: 'COMPLETED',
-        clinic: {
+        diagnostic: {
           areaId,
         },
       },
@@ -56,14 +56,14 @@ export const SummaryService = {
     const pendingAppointments = await prisma.appointment.count({
       where: {
         status: 'PENDING',
-        clinic: {
+        diagnostic: {
           areaId,
         },
       },
     });
 
     // ⭐ Reviews
-    const totalReviews = await prisma.review.count({
+    const totalReviews = await prisma.doctorReview.count({
       where: {
         doctor: {
           areas: {
@@ -79,7 +79,7 @@ export const SummaryService = {
       area: manager.area.name,
       stats: {
         doctors: totalDoctors,
-        clinics: totalClinics,
+        diagnostics: totalDiagnostics,
         memberships: totalMemberships,
         appointments: {
           total: totalAppointments,

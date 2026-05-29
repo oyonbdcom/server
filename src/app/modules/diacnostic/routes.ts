@@ -1,6 +1,6 @@
 import { UserRole } from '@prisma/client';
 import express from 'express';
-import { protect, restrictTo } from '../../../middlewares/authMiddleware';
+import { protect, protectOptional, restrictTo } from '../../../middlewares/authMiddleware';
 import { zodValidate } from '../../../middlewares/zodValidation';
 import { DiagnosticController } from './controllers';
 import { DiagnosticZodValidation } from './zodValidation';
@@ -16,35 +16,30 @@ router.post(
 );
 
 router.get('/', DiagnosticController.getDiagnostics);
-router.get('/:slug', DiagnosticController.getDiagnosticBySlug);
 router.get(
   '/statistics',
   protect,
-  restrictTo('ADMIN', UserRole.DIAGNOSTIC_MANAGER),
+  restrictTo('ADMIN', UserRole.DIAGNOSTIC),
   DiagnosticController.getDiagnosticManagerStats,
 );
 
-router.get(
-  '/single',
-  protect,
-  restrictTo(UserRole?.DIAGNOSTIC_MANAGER),
-  DiagnosticController.getSingleDiagnostic,
-);
 router.get(
   '/area-diagnostic',
   protect,
   restrictTo(UserRole.AREA_MANAGER),
   DiagnosticController.getAllAreaDiagnostics,
 );
+router.get('/:identifier', protectOptional, DiagnosticController.getDiagnosticByIdentifier);
+
 router.patch(
-  '/:digId',
+  '/:diagId',
   protect,
-  restrictTo('ADMIN', UserRole.DIAGNOSTIC_MANAGER, UserRole.AREA_MANAGER),
+  restrictTo('ADMIN', UserRole.DIAGNOSTIC, UserRole.AREA_MANAGER),
   DiagnosticController.updateDiagnostic,
 );
 
 router.delete(
-  '/:digId',
+  '/:diagId',
   protect,
   restrictTo(UserRole.AREA_MANAGER, UserRole.ADMIN),
   DiagnosticController.deleteDiagnostic,

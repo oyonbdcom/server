@@ -64,7 +64,7 @@ export interface IDoctorMembership {
   maxAppointments: number;
   discount: number;
   schedules: any[];
-  clinic: {
+  diagnostic: {
     address: string;
     district: string;
     city: string;

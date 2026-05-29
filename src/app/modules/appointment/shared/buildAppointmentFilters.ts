@@ -6,7 +6,7 @@ interface IAppointmentFilters {
   date?: string;
   status?: AppointmentStatus;
   doctorId?: string;
-  clinicId?: string;
+  diagId?: string;
   area?: string;
 }
 
@@ -15,7 +15,7 @@ export const buildAppointmentFilters = (
 ): Prisma.AppointmentWhereInput => {
   const andConditions: Prisma.AppointmentWhereInput[] = [];
 
-  const { searchTerm, date, status, doctorId, clinicId, area } = filters;
+  const { searchTerm, date, status, doctorId, diagId, area } = filters;
 
   if (status) {
     andConditions.push({
@@ -29,15 +29,15 @@ export const buildAppointmentFilters = (
     });
   }
 
-  if (clinicId) {
+  if (diagId) {
     andConditions.push({
-      clinicId,
+      diagId,
     });
   }
 
   if (area) {
     andConditions.push({
-      clinic: {
+      diagnostic: {
         area: {
           slug: area,
         },

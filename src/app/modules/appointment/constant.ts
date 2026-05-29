@@ -103,7 +103,7 @@ export const appointmentPopulate = {
     },
   },
   emergency: true,
-  clinic: {
+  diagnostic: {
     select: {
       id: true,
       user: {
@@ -141,7 +141,7 @@ export const AppointmentsFilterableFields = [
   'district',
   'area',
   'doctorId',
-  'clinicId',
+  'diagId',
   'isEmergency',
 ];
 export const normalizePhone = (value: string) => {

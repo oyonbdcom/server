@@ -12,7 +12,7 @@ datasource db {
 enum UserRole {
   ADMIN
   AREA_MANAGER
-  DIAGNOSTIC_MANAGER
+  DIAGNOSTIC
   DOCTOR
   PATIENT
   STAFF
@@ -54,7 +54,7 @@ enum AppointmentSource {
   PLATFORM
   STAFF
   MANAGER
-  CLINIC
+  DIAGNOSTIC
   ADMIN
 }
 
@@ -106,9 +106,9 @@ model Area {
   districtId String
   district   District @relation(fields: [districtId], references: [id], onDelete: Cascade)
 
-  managers Manager[]
-  clinics  Clinic[]
-  doctors  DoctorArea[]
+  managers    Manager[]
+  diagnostics Diagnostic[]
+  doctors     DoctorArea[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -134,10 +134,10 @@ model User {
   refreshToken      String?
   isDefaultPassword Boolean @default(false)
 
-  doctor  Doctor?
-  clinic  Clinic?
-  manager Manager?
-  staff   Staff?
+  doctor     Doctor?
+  diagnostic Diagnostic?
+  manager    Manager?
+  staff      Staff?
 
   patient Patient?
 
@@ -148,14 +148,19 @@ model User {
 
   deviceTokens DeviceToken[]
 
-  reviewsWritten Review[]      @relation("UserReviews")
-  reviewReplies  ReviewReply[]
-  feedbacks      Feedback[]
+  doctorReviewsWritten DoctorReview[]      @relation("UserDoctorReviews")
+  doctorReviewReplies  DoctorReviewReply[] @relation("UserDoctorReviewReplies")
+
+  diagnosticReviewsWritten DiagnosticReview[]      @relation("UserDiagnosticReviews")
+  diagnosticReviewReplies  DiagnosticReviewReply[] @relation("UserDiagnosticReviewReplies")
+
+  feedbacks Feedback[]
 
   createdMemberships Membership[] @relation("MembershipCreator")
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  doctorReviews DoctorReview[]
 }
 
 model Otp {
@@ -195,29 +200,29 @@ model Department {
 }
 
 model Doctor {
-  id             String        @id @default(cuid())
-  userId         String        @unique
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  slug           String        @unique
+  id             String         @id @default(cuid())
+  userId         String         @unique
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug           String         @unique
   appointments   Appointment[]
   specialization String
   departmentId   String
-  department     Department    @relation(fields: [departmentId], references: [id])
+  department     Department     @relation(fields: [departmentId], references: [id])
   website        String?
   position       String?
   education      Json?
-  hospital       String?       @db.Text
-  gender         Gender?       @default(MALE)
-  experience     Int           @default(0)
-  isEmergency    Boolean       @default(false)
+  hospital       String?        @db.Text
+  gender         Gender?        @default(MALE)
+  experience     Int            @default(0)
+  isEmergency    Boolean        @default(false)
   areas          DoctorArea[]
   memberships    Membership[]
-  reviews        Review[]
-  averageRating  Float         @default(0.0)
-  reviewsCount   Int           @default(0)
+  reviews        DoctorReview[]
+  averageRating  Float          @default(0.0)
+  reviewsCount   Int            @default(0)
   staffs         Staff[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   @@index([slug])
   @@index([departmentId])
@@ -233,37 +238,40 @@ model DoctorArea {
   @@unique([doctorId, areaId])
 }
 
-model Clinic {
-  id           String        @id @default(cuid())
-  userId       String        @unique
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  slug         String        @unique
-  address      String
-  areaId       String
-  area         Area          @relation(fields: [areaId], references: [id])
-  website      String?
-  appointments Appointment[]
-  memberships  Membership[]
-  staffs       Staff[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+model Diagnostic {
+  id            String             @id @default(cuid())
+  userId        String             @unique
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug          String             @unique
+  reviews       DiagnosticReview[]
+  averageRating Float              @default(0.0)
+  reviewsCount  Int                @default(0)
+  address       String
+  areaId        String
+  area          Area               @relation(fields: [areaId], references: [id])
+  website       String?
+  appointments  Appointment[]
+  memberships   Membership[]
+  staffs        Staff[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@index([areaId])
 }
 
 model Staff {
-  id               String    @id @default(cuid())
-  userId           String    @unique
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clinicId         String
-  clinic           Clinic    @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  id               String     @id @default(cuid())
+  userId           String     @unique
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  diagId           String
+  diagnostic       Diagnostic @relation(fields: [diagId], references: [id], onDelete: Cascade)
   assignedDoctorId String?
-  assignedDoctor   Doctor?   @relation(fields: [assignedDoctorId], references: [id])
-  staffType        StaffType @default(RECEPTIONIST)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  assignedDoctor   Doctor?    @relation(fields: [assignedDoctorId], references: [id])
+  staffType        StaffType  @default(RECEPTIONIST)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
-  @@index([clinicId])
+  @@index([diagId])
   @@index([assignedDoctorId])
 }
 
@@ -271,7 +279,7 @@ model DoctorSession {
   id String @id @default(cuid())
 
   doctorId      String
-  clinicId      String
+  diagId        String
   runningSerial Int                 @default(0)
   status        DoctorSessionStatus @default(ABSENT)
 
@@ -281,7 +289,7 @@ model DoctorSession {
 
   updatedAt DateTime @updatedAt
 
-  @@index([doctorId, clinicId])
+  @@index([doctorId, diagId])
 }
 
 // --- Appointments & Schedules ---
@@ -290,8 +298,8 @@ model Membership {
   id           String        @id @default(cuid())
   doctorId     String
   doctor       Doctor        @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  clinicId     String
-  clinic       Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  diagId       String
+  diagnostic   Diagnostic    @relation(fields: [diagId], references: [id], onDelete: Cascade)
   createdById  String
   createdBy    User          @relation("MembershipCreator", fields: [createdById], references: [id])
   fee          Int           @default(0)
@@ -302,7 +310,7 @@ model Membership {
   updatedAt    DateTime      @updatedAt
   appointments Appointment[]
 
-  @@unique([doctorId, clinicId])
+  @@unique([doctorId, diagId])
 }
 
 model Schedule {
@@ -317,11 +325,11 @@ model Schedule {
 model AppointmentCounter {
   id         String   @id @default(cuid())
   doctorId   String
-  clinicId   String
+  diagId     String
   date       DateTime
   lastSerial Int
 
-  @@unique([doctorId, clinicId, date])
+  @@unique([doctorId, diagId, date])
 }
 
 model Appointment {
@@ -334,6 +342,10 @@ model Appointment {
   source          AppointmentSource @default(PLATFORM)
   status          AppointmentStatus @default(SCHEDULED)
   address         String?
+  paymentMethod   String?
+  consultationFee Int?
+  transactionId   String?
+  paymentStatus   PaymentStatus     @default(PENDING)
   // =================================================
   // DOCTOR
   // =================================================
@@ -342,11 +354,11 @@ model Appointment {
   doctor          Doctor            @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
   // =================================================
-  // CLINIC
+  // DIAGNOSTIC
   // =================================================
 
-  clinicId String?
-  clinic   Clinic? @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  diagId     String?
+  diagnostic Diagnostic? @relation(fields: [diagId], references: [id], onDelete: Cascade)
 
   // =================================================
   // WHO CREATED THIS APPOINTMENT
@@ -376,21 +388,14 @@ model Appointment {
 model EmergencyRequest {
   id String @id @default(cuid())
 
-  appointmentId String      @unique
-  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-
-  type            EmergencyType
-  status          EmergencyStatus @default(PENDING)
-  paymentMethod   String?
-  consultationFee Int?
-  transactionId   String?
-  paymentStatus   PaymentStatus   @default(PENDING)
-
-  createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  appointmentId String          @unique
+  appointment   Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  type          EmergencyType   @default(PLATFORM)
+  status        EmergencyStatus @default(PENDING)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  user          User?           @relation(fields: [userId], references: [id])
+  userId        String?
 }
 
 model Patient {
@@ -407,24 +412,78 @@ model Patient {
   @@unique([userId, age])
 }
 
-// --- Feedback System ---
+// ==================== ১. ডক্টর রিভিউ ও রিপ্লাই ====================
+model DoctorReview {
+  id      String  @id @default(cuid())
+  rating  Int     @default(1) @db.SmallInt
+  comment String? @db.Text
 
-model Review {
-  id         String       @id @default(cuid())
-  rating     Int          @default(1) @db.SmallInt
-  comment    String?      @db.Text
   reviewerId String
-  reviewer   User         @relation("UserReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
-  doctorId   String
-  doctor     Doctor       @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  status     ReviewStatus @default(PENDING)
-  reply      ReviewReply?
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  reviewer   User   @relation("UserDoctorReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  doctorId String
+  doctor   Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  status ReviewStatus       @default(PENDING)
+  reply  DoctorReviewReply?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?
 
   @@unique([reviewerId, doctorId])
 }
 
+model DoctorReviewReply {
+  id      String @id @default(cuid())
+  content String @db.Text
+
+  reviewId String       @unique
+  review   DoctorReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  repliedById String
+  repliedBy   User   @relation("UserDoctorReviewReplies", fields: [repliedById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==================== ২. ক্লিনিক রিভিউ ও রিপ্লাই ====================
+model DiagnosticReview {
+  id      String  @id @default(cuid())
+  rating  Int     @default(1) @db.SmallInt
+  comment String? @db.Text
+
+  reviewerId String
+  reviewer   User   @relation("UserDiagnosticReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  diagId     String
+  diagnostic Diagnostic @relation(fields: [diagId], references: [id], onDelete: Cascade)
+
+  status ReviewStatus           @default(PENDING)
+  reply  DiagnosticReviewReply?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reviewerId, diagId])
+}
+
+model DiagnosticReviewReply {
+  id      String @id @default(cuid())
+  content String @db.Text
+
+  diagReviewId     String           @unique
+  diagnosticReview DiagnosticReview @relation(fields: [diagReviewId], references: [id], onDelete: Cascade)
+  repliedById      String
+  repliedBy        User             @relation("UserDiagnosticReviewReplies", fields: [repliedById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// platform review
 model Feedback {
   id        String       @id @default(cuid())
   rating    Int          @default(1)
@@ -436,18 +495,6 @@ model Feedback {
   updatedAt DateTime     @updatedAt
 
   @@unique([patientId])
-}
-
-model ReviewReply {
-  id       String @id @default(cuid())
-  content  String @db.Text
-  reviewId String @unique
-  review   Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-
-  repliedById String
-  repliedBy   User     @relation(fields: [repliedById], references: [id], onDelete: Cascade)
-  updatedAt   DateTime @updatedAt
-  createdAt   DateTime @default(now())
 }
 
 model DeviceToken {

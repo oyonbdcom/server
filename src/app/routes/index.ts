@@ -7,12 +7,13 @@ import { DiagnosticRoutes } from '../modules/diacnostic/routes';
 import { AppointmentsRoutes } from '../modules/appointment/routes';
 import { DoctorRoutes } from '../modules/doctor/routes';
 
+import { DiagnosticReviewsRoutes } from '../modules/diagnostic-review/routes';
+import { DoctorReviewsRoutes } from '../modules/doctor-review/routes';
 import { FeedbackRoutes } from '../modules/feedback/routes';
 import { SetupRoutes } from '../modules/location/routes';
 import { MedicalHistoryRoutes } from '../modules/medical-history/routes';
 import { DeviceTokenRoutes } from '../modules/notification/routes';
 import { PatientRoutes } from '../modules/patient/routes';
-import { ReviewsRoutes } from '../modules/review/routes';
 import { ScheduleRoutes } from '../modules/schedule/routes';
 import { StaffRoutes } from '../modules/staff/routes';
 import { SummaryRoutes } from '../modules/summary/routes';
@@ -48,8 +49,12 @@ const modulesRoute = [
   },
 
   {
-    path: '/reviews',
-    route: ReviewsRoutes,
+    path: '/doctor-reviews',
+    route: DoctorReviewsRoutes,
+  },
+  {
+    path: '/diagnostic-reviews',
+    route: DiagnosticReviewsRoutes,
   },
   {
     path: '/feedbacks',

@@ -15,7 +15,7 @@ export const appointmentPopulate = {
     },
   },
 
-  clinic: {
+  diagnostic: {
     select: {
       id: true,
       user: {

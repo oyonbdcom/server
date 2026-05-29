@@ -166,7 +166,7 @@ const completeAppointment = catchAsync(async (req, res) => {
 });
 const updateDoctorSession = catchAsync(async (req, res) => {
   const newStatus = req.body;
-  console.log(newStatus);
+
   const user = req.user as JwtPayload;
   const result = await AppointmentService.updateDoctorSession(
     user.id as string,

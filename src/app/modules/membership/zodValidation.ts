@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const membershipSchema = z.object({
   doctorId: z.string().min(1, { message: 'ডাক্তার নির্বাচন করা আবশ্যক' }),
-  clinicId: z.string().min(1, { message: 'ক্লিনিক নির্বাচন করা আবশ্যক' }).optional(),
+  diagId: z.string().min(1, { message: 'ক্লিনিক নির্বাচন করা আবশ্যক' }).optional(),
 
   fee: z.coerce.number().min(0, { message: 'ফি ০ এর কম হতে পারবে না' }),
 
@@ -13,17 +13,17 @@ export const membershipSchema = z.object({
 
   active: z.boolean().default(true),
 });
-// Schema for creating a new ClinicMembership
+// Schema for creating a new DiagnosticMembership
 export const createMembershipSchema = z.object({
   body: membershipSchema,
 });
 
-// Schema for updating an existing ClinicMembership
-export const updateClinicMembershipSchema = z.object({
+// Schema for updating an existing DiagnosticMembership
+export const updateDiagnosticMembershipSchema = z.object({
   body: membershipSchema.partial(),
 });
 
-export const ClinicMembershipZodValidation = {
+export const diagnosticMembershipZodValidation = {
   createMembershipSchema,
-  updateClinicMembershipSchema,
+  updateDiagnosticMembershipSchema,
 };

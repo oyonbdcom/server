@@ -1,8 +1,6 @@
 /* eslint-disable prefer-const */
 import { z } from 'zod';
 
-const banglaRegex = /^[০-৯\u0980-\u09FF\s\-:.,()]+$/;
-
 const scheduleSchema = z.object({
   time: z
     .string()

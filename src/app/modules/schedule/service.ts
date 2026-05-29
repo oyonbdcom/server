@@ -13,7 +13,7 @@ const createSchedule = async (data: any): Promise<IScheduleResponse> => {
   });
 
   if (!isMembershipExist) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Clinic Membership not found');
+    throw new ApiError(httpStatus.NOT_FOUND, 'Diagnostic Membership not found');
   }
 
   const result = await prisma.schedule.create({

@@ -20,7 +20,7 @@ export interface IAppointmentResponse {
     id: string;
     name: string;
     image: string | null;
-    email?: string;
+
     doctor: {
       department: string | null;
       specialization: string | null;
@@ -30,18 +30,18 @@ export interface IAppointmentResponse {
     id: string;
     name: string;
     image: string | null;
-    email?: string;
+
     patient: {
       phoneNumber: string | null;
       bloodGroup: string | null;
     } | null;
   };
 
-  clinic: {
+  diagnostic: {
     id: string;
     name: string;
     image: string | null;
-    clinic: {
+    diagnostic: {
       address: string | null;
       city: string | null;
       district: string | null;

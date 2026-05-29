@@ -5,7 +5,7 @@ import pick from '../../../helper/pick';
 import { catchAsync } from '../../../shared/catchAsync';
 import { sendResponse } from '../../../shared/sendResponse';
 import ApiError from '../../../utils/apiError';
-import { IFeedbackResponse, IReviewResponse, ReviewFilterableFields } from './interface';
+import { IReviewResponse, ReviewFilterableFields } from './interface';
 import { ReviewsService } from './service';
 
 // ======================================================
@@ -24,36 +24,6 @@ const createReviews = catchAsync(async (req, res) => {
     data: result,
   });
 });
-const createFeedback = catchAsync(async (req, res) => {
-  const user = req.user;
-
-  // 🔐 Auth check
-  if (!user) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
-  }
-
-  // 🔥 Service call
-  const result = await ReviewsService.createFeedback(user.id, req.body);
-
-  // ✅ Response
-  sendResponse<IFeedbackResponse>(res, {
-    statusCode: httpStatus.CREATED,
-    success: true,
-    message: 'Feedback submitted successfully',
-    data: result,
-  });
-});
-
-const getFeedbacks = catchAsync(async (req, res) => {
-  const result = await ReviewsService.getFeedbacks();
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Feedback fetched successfully',
-    data: result,
-  });
-});
 
 const replyToReview = catchAsync(async (req, res) => {
   const { id } = req.params as { id: string };
@@ -69,26 +39,7 @@ const replyToReview = catchAsync(async (req, res) => {
     data: result,
   });
 });
-// ======================================================
-// GET ALL REVIEWS (By )
-// ======================================================
-// const getAllReviews = catchAsync(async (req, res) => {
-//   const paginationOptions = pick(req.query, paginationFields);
-//   const filter = pick(req.query, ReviewFilterableFields);
-//   const user = req?.user;
-//   if (!user) {
-//     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
-//   }
-//   const result = await ReviewsService.getAllReviews(user, filter, paginationOptions);
 
-//   sendResponse<IReviewResponse[]>(res, {
-//     statusCode: httpStatus.OK,
-//     success: true,
-//     message: ' reviews retrieved successfully',
-//     meta: result.meta,
-//     data: result.data,
-//   });
-// });
 const getSingleTargetReviews = catchAsync(async (req, res) => {
   // 1. Extract path parameters
   const { doctorId } = req.params as { doctorId: string };
@@ -98,12 +49,7 @@ const getSingleTargetReviews = catchAsync(async (req, res) => {
   const options = pick(req.query, paginationFields);
 
   // 3. Call the service
-  const result = await ReviewsService.getSingleTargetReviews(
-    doctorId,
-
-    filters,
-    options,
-  );
+  const result = await ReviewsService.getSingleTargetReviews(doctorId, filters, options);
 
   // 4. Send standard response
   sendResponse(res, {
@@ -135,22 +81,6 @@ const getReviewsByManagerArea = catchAsync(async (req, res) => {
   });
 });
 
-// const getReviewStats = catchAsync(async (req, res) => {
-//   const filter = pick(req.query, ReviewFilterableFields);
-//   const user = req?.user;
-//   if (!user) {
-//     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
-//   }
-//   const result = await ReviewsService.getReviewStats(user, filter);
-
-//   sendResponse(res, {
-//     statusCode: 200,
-//     success: true,
-//     message: 'Review statistics fetched successfully',
-//     data: null,
-//     stats: result,
-//   });
-// });
 // ======================================================
 // UPDATE REVIEW
 // ======================================================
@@ -193,10 +123,10 @@ const deleteReview = catchAsync(async (req, res) => {
 export const ReviewsController = {
   replyToReview,
   createReviews,
-  createFeedback,
+
   getSingleTargetReviews,
   updateReview,
-  getFeedbacks,
+
   deleteReview,
   getReviewsByManagerArea,
 };

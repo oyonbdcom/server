@@ -23,7 +23,22 @@ const createMembership = catchAsync(async (req, res) => {
     data: result || null,
   });
 });
+const getMembershipsBySlug = catchAsync(async (req, res) => {
+  const slug = req.params.slug as string;
 
+  // পেজিনেশন এবং ফিল্টারিং অপশন পিক করা
+  const options = pick(req.query, ['limit', 'page', 'sortBy', 'sortOrder']);
+
+  const result = await MembershipService.getMembershipsBySlug(slug, options);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'মেম্বারশিপ ডাটা সফলভাবে পাওয়া গিয়েছে',
+    meta: result.meta,
+    data: result.data,
+  });
+});
 const getDiagnosticMemberDoctors = catchAsync(async (req, res) => {
   const userId = req.user?.id;
 
@@ -35,7 +50,7 @@ const getDiagnosticMemberDoctors = catchAsync(async (req, res) => {
   const paginationOptions = pick(req.query, paginationFields);
 
   // ✅ filters (সব একসাথে)
-  const filters = pick(req.query, ['searchTerm', 'clinicId', 'doctorId']);
+  const filters = pick(req.query, ['searchTerm', 'diagId', 'doctorId']);
 
   const result = await MembershipService.getDiagnosticMemberDoctors(
     userId,
@@ -87,6 +102,6 @@ export const MembershipController = {
   createMembership,
   getDiagnosticMemberDoctors,
   updateMemberships,
-
+  getMembershipsBySlug,
   deleteMembership,
 };

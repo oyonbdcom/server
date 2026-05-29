@@ -6,13 +6,8 @@ import { IGenericResponse } from '../../../interface/common';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
 
-import {
-  CreateReviewInput,
-  IFeedbackResponse,
-  IReviewResponse,
-  UpdateReviewInput,
-} from './interface';
-import { recallRating } from './utils copy';
+import { CreateReviewInput, IReviewResponse, UpdateReviewInput } from './interface';
+import { recallRating } from './utils';
 
 const createReview = async (
   userId: string,
@@ -42,7 +37,7 @@ const createReview = async (
   }
 
   // 2. DUPLICATE CHECK: স্কিমার @@unique([reviewerId, doctorId]) অনুযায়ী চেক
-  const existingReview = await prisma.review.findUnique({
+  const existingReview = await prisma.doctorReview.findUnique({
     where: {
       reviewerId_doctorId: {
         reviewerId: user.id,
@@ -60,7 +55,7 @@ const createReview = async (
 
   // 3. EXECUTE TRANSACTION
   const result = await prisma.$transaction(async (tx) => {
-    const newReview = await tx.review.create({
+    const newReview = await tx.doctorReview.create({
       data: {
         rating,
         comment,
@@ -104,76 +99,9 @@ const createReview = async (
   return result as unknown as IReviewResponse;
 };
 
-// system feedback
-const createFeedback = async (
-  userId: string,
-  payload: any,
-): Promise<IFeedbackResponse | undefined> => {
-  const { rating, comment } = payload;
-
-  // 1️⃣ USER CHECK
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, role: true, name: true, image: true },
-  });
-
-  if (!user) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'User not found.');
-  }
-
-  // 🔐 Only PATIENT allowed
-  if (user.role !== 'PATIENT') {
-    throw new ApiError(httpStatus.FORBIDDEN, 'Access Denied: Only Patients can submit feedback.');
-  }
-
-  // 2️⃣ DUPLICATE CHECK (if @@unique([patientId]) used)
-  const existingFeedback = await prisma.feedback.findUnique({
-    where: {
-      patientId: user.id,
-    },
-  });
-
-  if (existingFeedback) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'You have already submitted feedback.');
-  }
-
-  // 3️⃣ CREATE FEEDBACK
-  const result = await prisma.feedback.create({
-    data: {
-      rating,
-      comment,
-      status: 'PENDING', // admin approve করবে
-      patient: {
-        connect: { id: user.id },
-      },
-    },
-    include: {
-      patient: {
-        select: {
-          id: true,
-          name: true,
-          image: true,
-          patient: {
-            select: {
-              gender: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  return result as unknown as IFeedbackResponse;
-};
-const getFeedbacks = async () => {
-  const result = await prisma.feedback.findMany({});
-
-  return result;
-};
-
 // doctor review replay
 const replyToReview = async (reviewId: string, userId: string, content: string) => {
-  const review = await prisma.review.findUnique({
+  const review = await prisma.doctorReview.findUnique({
     where: { id: reviewId },
     include: {
       reviewer: {
@@ -190,12 +118,12 @@ const replyToReview = async (reviewId: string, userId: string, content: string) 
     throw new ApiError(httpStatus.NOT_FOUND, 'Review not found');
   }
 
-  // 2. Security: Check if user owns the Doctor or Clinic profile being reviewed
-  // We compare the userId from the JWT with the userId associated with the Doctor/Clinic
+  // 2. Security: Check if user owns the Doctor or Diagnostic profile being reviewed
+  // We compare the userId from the JWT with the userId associated with the Doctor/Diagnostic
 
   // 3. Upsert Logic: If reply exists, update it; otherwise, create it.
   // This is better for UX than throwing an error on "Duplicate Reply"
-  const result = await prisma.reviewReply.upsert({
+  const result = await prisma.doctorReviewReply.upsert({
     where: { reviewId },
     update: {
       content,
@@ -225,7 +153,7 @@ const getSingleTargetReviews = async (
   const { searchTerm, rating, status } = filter;
 
   // 2. Build dynamic AND conditions
-  const andConditions: Prisma.ReviewWhereInput[] = [
+  const andConditions: Prisma.DoctorReviewWhereInput[] = [
     { doctorId },
 
     // Default to APPROVED if no status filter is provided
@@ -247,10 +175,10 @@ const getSingleTargetReviews = async (
     });
   }
 
-  const whereCondition: Prisma.ReviewWhereInput = { AND: andConditions };
+  const whereCondition: Prisma.DoctorReviewWhereInput = { AND: andConditions };
 
   const [reviews, total] = await Promise.all([
-    prisma.review.findMany({
+    prisma.doctorReview.findMany({
       where: whereCondition,
       skip,
       take: limit,
@@ -271,7 +199,7 @@ const getSingleTargetReviews = async (
         reply: true,
       },
     }),
-    prisma.review.count({ where: whereCondition }),
+    prisma.doctorReview.count({ where: whereCondition }),
   ]);
 
   return {
@@ -279,6 +207,7 @@ const getSingleTargetReviews = async (
     data: reviews as unknown as IReviewResponse[],
   };
 };
+
 const getReviewsByManagerArea = async (
   managerUserId: string,
   filter: {
@@ -372,7 +301,7 @@ const getReviewsByManagerArea = async (
 
   // ৩. ডাটা এবং টোটাল কাউন্ট ফেচ করা
   const [reviews, total] = await Promise.all([
-    prisma.review.findMany({
+    prisma.doctorReview.findMany({
       where: whereConditions,
       skip,
       take: limit,
@@ -389,7 +318,7 @@ const getReviewsByManagerArea = async (
       },
       orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
     }),
-    prisma.review.count({ where: whereConditions }),
+    prisma.doctorReview.count({ where: whereConditions }),
   ]);
   const totalPage = Math.ceil(total / limit);
   return {
@@ -405,7 +334,7 @@ const updateReview = async (
 ): Promise<any> => {
   return await prisma.$transaction(async (tx) => {
     // ১. রিভিউটি খুঁজে বের করা এবং প্রয়োজনীয় ডাটা ইনক্লুড করা
-    const existing = await tx.review.findUnique({
+    const existing = await tx.doctorReview.findUnique({
       where: { id: reviewId },
       select: {
         id: true,
@@ -424,7 +353,7 @@ const updateReview = async (
     }
 
     // ৪. রিভিউ আপডেট করা
-    const updatedReview = await tx.review.update({
+    const updatedReview = await tx.doctorReview.update({
       where: { id: reviewId },
       data: { ...data },
     });
@@ -439,7 +368,7 @@ const updateReview = async (
 
 const deleteReview = async (reviewId: string, user: JwtPayload) => {
   return await prisma.$transaction(async (tx) => {
-    const existing = await tx.review.findUnique({
+    const existing = await tx.doctorReview.findUnique({
       where: { id: reviewId },
       select: {
         id: true,
@@ -453,7 +382,7 @@ const deleteReview = async (reviewId: string, user: JwtPayload) => {
     }
 
     // 3️⃣ Delete review
-    await tx.review.delete({
+    await tx.doctorReview.delete({
       where: { id: reviewId },
     });
 
@@ -467,8 +396,7 @@ const deleteReview = async (reviewId: string, user: JwtPayload) => {
 export const ReviewsService = {
   replyToReview,
   createReview,
-  getFeedbacks,
-  createFeedback,
+
   getSingleTargetReviews,
   updateReview,
   deleteReview,

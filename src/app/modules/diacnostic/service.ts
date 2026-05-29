@@ -41,7 +41,7 @@ const createDiagnostic = async (
   const hashedPassword = await bcrypt.hash(DiagnosticData.user?.password || defaultPassword, 10);
 
   // ৪. ডাটাবেজে ক্লিনিক তৈরি (Transaction ব্যবহার করা নিরাপদ)
-  const Diagnostic = await prisma.clinic.create({
+  const Diagnostic = await prisma.diagnostic.create({
     data: {
       slug: DiagnosticData.slug,
       address: DiagnosticData.address,
@@ -57,7 +57,7 @@ const createDiagnostic = async (
           name: DiagnosticData.user.name,
           phoneNumber: DiagnosticData.user.phoneNumber,
           password: hashedPassword,
-          role: UserRole.DIAGNOSTIC_MANAGER,
+          role: UserRole.DIAGNOSTIC,
           image: DiagnosticData.user.image,
           isDefaultPassword: !DiagnosticData.user.password,
         },
@@ -85,7 +85,7 @@ const getDiagnostics = async (
   // ১. ডিস্ট্রিক্ট এবং এরিয়া ডিস্ট্রাকচার করুন
   const { searchTerm, deactivate, district, area } = filter;
 
-  const andConditions: Prisma.ClinicWhereInput[] = [];
+  const andConditions: Prisma.DiagnosticWhereInput[] = [];
 
   // সার্চ টার্ম লজিক
   if (searchTerm) {
@@ -127,84 +127,24 @@ const getDiagnostics = async (
     });
   }
 
-  const whereCondition: Prisma.ClinicWhereInput = { AND: andConditions };
+  const whereCondition: Prisma.DiagnosticWhereInput = { AND: andConditions };
 
   // ডাটাবেজ কোয়েরি
   const [data, total] = await Promise.all([
-    prisma.clinic.findMany({
+    prisma.diagnostic.findMany({
       where: whereCondition,
       skip,
       take: limit,
       orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
       select: DIAGNOSTIC_SELECT,
     }),
-    prisma.clinic.count({ where: whereCondition }),
+    prisma.diagnostic.count({ where: whereCondition }),
   ]);
   const totalPage = Math.ceil(total / limit);
   return {
     meta: { page, limit, total, totalPage },
     data: data as unknown as IDiagnosticResponse[],
   };
-};
-const getDiagnosticBySlug = async (slug: string): Promise<IDiagnosticResponse | null> => {
-  if (!slug || slug.length > 100) {
-    throw new Error('Invalid slug format.');
-  }
-
-  const result = await prisma.clinic.findUnique({
-    where: {
-      slug: slug.trim(),
-    },
-
-    select: {
-      id: true,
-
-      slug: true,
-      address: true,
-      user: {
-        select: {
-          name: true,
-        },
-      },
-      memberships: {
-        select: {
-          doctor: {
-            select: {
-              department: {
-                select: {
-                  name: true,
-                },
-              },
-              id: true,
-              averageRating: true,
-              slug: true,
-              user: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          },
-          clinic: {
-            select: {
-              id: true,
-            },
-          },
-          schedules: true,
-          fee: true,
-          discount: true,
-        },
-      },
-      area: true,
-      website: true,
-      userId: true,
-      createdAt: true,
-      updatedAt: true,
-      areaId: true,
-    },
-  });
-
-  return result as any;
 };
 
 const staffRoleLabels = {
@@ -223,24 +163,10 @@ const getTodayRange = () => {
   };
 };
 
-// create staff
-
-interface ICreateStaffPayload {
-  DiagnosticId: string;
-  user: {
-    name: string;
-    phoneNumber: string;
-    password: string;
-    image?: string;
-  };
-  staffType: 'COORDINATOR' | 'RECEPTIONIST' | 'STAFF';
-  assignedDoctorId?: string;
-}
-
 // manager dashboard stats
 const getDiagnosticManagerStats = async (userId: string): Promise<IDiagnosticManagerStats> => {
   const { startOfDay, endOfDay } = getTodayRange();
-  const diagnostic = await prisma.clinic.findUnique({
+  const diagnostic = await prisma.diagnostic.findUnique({
     where: {
       userId,
     },
@@ -262,7 +188,7 @@ const getDiagnosticManagerStats = async (userId: string): Promise<IDiagnosticMan
   const diagId = diagnostic.id;
   // COMMON APPOINTMENT FILTER
   const appointmentDiagnosticWhere = {
-    clinicId: diagId,
+    diagId,
   };
 
   const [totalDoctors, todayAppointments, completedAppointments, totalStaffs, staffs] =
@@ -270,7 +196,7 @@ const getDiagnosticManagerStats = async (userId: string): Promise<IDiagnosticMan
       // TOTAL ACTIVE DOCTORS
       prisma.membership.count({
         where: {
-          clinicId: diagId,
+          diagId,
         },
       }),
 
@@ -297,14 +223,14 @@ const getDiagnosticManagerStats = async (userId: string): Promise<IDiagnosticMan
       // TOTAL STAFFS
       prisma.staff.count({
         where: {
-          clinicId: diagId,
+          diagId,
         },
       }),
 
       // STAFF ACTIVITIES
       prisma.staff.findMany({
         where: {
-          clinicId: diagId,
+          diagId,
         },
 
         take: 5,
@@ -365,10 +291,11 @@ const getDiagnosticManagerStats = async (userId: string): Promise<IDiagnosticMan
   };
 };
 
-const getSingleDiagnostic = async (userId: string): Promise<IDiagnosticResponse> => {
-  const Diagnostic = await prisma.clinic.findUnique({
-    where: { userId },
-
+const getDiagnosticByIdentifier = async (identifier: string): Promise<IDiagnosticResponse> => {
+  const diagnostic = await prisma.diagnostic.findFirst({
+    where: {
+      OR: [{ slug: identifier }, { userId: identifier }],
+    },
     include: {
       user: {
         select: {
@@ -379,7 +306,6 @@ const getSingleDiagnostic = async (userId: string): Promise<IDiagnosticResponse>
           deactivate: true,
         },
       },
-
       area: {
         select: {
           name: true,
@@ -393,13 +319,12 @@ const getSingleDiagnostic = async (userId: string): Promise<IDiagnosticResponse>
     },
   });
 
-  if (!Diagnostic) {
-    throw new ApiError(404, 'Diagnostic not found');
+  if (!diagnostic) {
+    throw new ApiError(404, 'Diagnostic dddd not found');
   }
 
-  return Diagnostic as unknown as IDiagnosticResponse;
+  return diagnostic as unknown as IDiagnosticResponse;
 };
-
 const getAllAreaDiagnostics = async (
   filter: IDiagnosticFilterRequest,
   options: IOptions,
@@ -433,7 +358,7 @@ const getAllAreaDiagnostics = async (
   // WHERE CONDITIONS
   // =====================================================
 
-  const andConditions: Prisma.ClinicWhereInput[] = [];
+  const andConditions: Prisma.DiagnosticWhereInput[] = [];
 
   // Area Scope
   andConditions.push({
@@ -474,7 +399,7 @@ const getAllAreaDiagnostics = async (
     });
   }
 
-  const whereCondition: Prisma.ClinicWhereInput =
+  const whereCondition: Prisma.DiagnosticWhereInput =
     andConditions.length > 0
       ? {
           AND: andConditions,
@@ -509,7 +434,7 @@ const getAllAreaDiagnostics = async (
       take: limit,
     };
 
-    const total = await prisma.clinic.count({
+    const total = await prisma.diagnostic.count({
       where: whereCondition,
     });
 
@@ -525,7 +450,7 @@ const getAllAreaDiagnostics = async (
   // QUERY
   // =====================================================
 
-  const Diagnostics = await prisma.clinic.findMany({
+  const diagnostics = await prisma.diagnostic.findMany({
     where: whereCondition,
 
     ...pagination,
@@ -548,17 +473,16 @@ const getAllAreaDiagnostics = async (
 
   return {
     meta,
-    data: Diagnostics as unknown as IDiagnosticResponse[],
+    data: diagnostics as unknown as IDiagnosticResponse[],
   };
 };
 
 const updateDiagnostic = async (
-  DiagnosticId: string, // এটি মূলত Diagnostic টেবিলের ID
-  DiagnosticData: IUpdateDiagnosticRequest,
+  diagnosticId: string, // এটি মূলত Diagnostic টেবিলের ID
+  diagnosticData: IUpdateDiagnosticRequest,
 ): Promise<IDiagnosticResponse> => {
-  // ১. ক্লিনিক প্রোফাইল আছে কি না চেক করা (User সহ)
-  const existingDiagnostic = await prisma.clinic.findUnique({
-    where: { id: DiagnosticId },
+  const existingDiagnostic = await prisma.diagnostic.findUnique({
+    where: { id: diagnosticId },
     include: { user: true },
   });
 
@@ -568,25 +492,25 @@ const updateDiagnostic = async (
 
   // ২. ইউজার আপডেট ডাটা তৈরি
   const userData: any = {};
-  if (DiagnosticData.user) {
-    if (DiagnosticData.user.name) userData.name = DiagnosticData.user.name;
-    if (DiagnosticData.user.phoneNumber) userData.phoneNumber = DiagnosticData.user.phoneNumber;
-    if (DiagnosticData.user.image) userData.image = DiagnosticData.user.image;
-    if (DiagnosticData.user.deactivate !== undefined)
-      userData.deactivate = DiagnosticData.user.deactivate;
+  if (diagnosticData.user) {
+    if (diagnosticData.user.name) userData.name = diagnosticData.user.name;
+    if (diagnosticData.user.phoneNumber) userData.phoneNumber = diagnosticData.user.phoneNumber;
+    if (diagnosticData.user.image) userData.image = diagnosticData.user.image;
+    if (diagnosticData.user.deactivate !== undefined)
+      userData.deactivate = diagnosticData.user.deactivate;
 
-    if (DiagnosticData.user.password) {
-      userData.password = await bcrypt.hash(DiagnosticData.user.password, 10);
+    if (diagnosticData.user.password) {
+      userData.password = await bcrypt.hash(diagnosticData.user.password, 10);
     }
   }
 
   // ৩. আপডেট অপারেশন
-  const updatedDiagnostic = await prisma.clinic.update({
-    where: { id: DiagnosticId },
+  const updatedDiagnostic = await prisma.diagnostic.update({
+    where: { id: diagnosticId },
     data: {
-      slug: DiagnosticData.slug,
-      address: DiagnosticData.address,
-      website: DiagnosticData?.website,
+      slug: diagnosticData.slug,
+      address: diagnosticData.address,
+      website: diagnosticData?.website,
       areaId: userData?.areaId,
       user: {
         update: userData,
@@ -600,7 +524,7 @@ const updateDiagnostic = async (
 
 const deleteDiagnostic = async (id: string, user: { id: string; role: string }): Promise<any> => {
   // ১. ক্লিনিক খুঁজে বের করা (area সহ)
-  const DiagnosticData = await prisma.clinic.findUnique({
+  const DiagnosticData = await prisma.diagnostic.findUnique({
     where: { id },
     select: {
       userId: true,
@@ -647,8 +571,8 @@ const deleteDiagnostic = async (id: string, user: { id: string; role: string }):
 export const DiagnosticService = {
   createDiagnostic,
   getDiagnostics,
-  getDiagnosticBySlug,
-  getSingleDiagnostic,
+
+  getDiagnosticByIdentifier,
 
   getDiagnosticManagerStats,
   updateDiagnostic,

@@ -27,7 +27,7 @@ router.post(
 router.post(
   '/remove-from-area',
   protect,
-  restrictTo(UserRole.AREA_MANAGER, UserRole.DIAGNOSTIC_MANAGER),
+  restrictTo(UserRole.AREA_MANAGER, UserRole.DIAGNOSTIC),
   DoctorController.removeDoctorFromArea,
 );
 
@@ -37,7 +37,7 @@ router.get('/', protectOptional, DoctorController.getDoctors);
 router.get(
   '/area-diagnostic-doctors',
   protect,
-  restrictTo(UserRole.AREA_MANAGER, UserRole.DIAGNOSTIC_MANAGER, UserRole?.STAFF),
+  restrictTo(UserRole.AREA_MANAGER, UserRole.DIAGNOSTIC, UserRole?.STAFF),
   DoctorController.getAreaAndDiagnosticDoctors,
 );
 router.get('/:id', DoctorController.getDoctorById);

@@ -36,7 +36,7 @@ export interface IAppointmentResponse {
     } | null;
   };
 
-  clinic: {
+  diagnostic: {
     id: string;
     name: string;
     image: string | null;

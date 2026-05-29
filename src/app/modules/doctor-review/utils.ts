@@ -5,7 +5,7 @@ export const recallRating = async (
 
   tx: Prisma.TransactionClient,
 ) => {
-  const stats = await tx.review.aggregate({
+  const stats = await tx.doctorReview.aggregate({
     where: { doctorId, status: 'APPROVED' },
     _avg: { rating: true },
     _count: { rating: true },

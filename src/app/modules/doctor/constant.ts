@@ -7,6 +7,7 @@ export const DOCTOR_SELECT = {
   department: {
     select: {
       name: true,
+      id: true,
       slug: true,
     },
   },
@@ -15,6 +16,7 @@ export const DOCTOR_SELECT = {
       area: {
         select: {
           name: true,
+
           district: {
             select: {
               name: true,
@@ -23,50 +25,10 @@ export const DOCTOR_SELECT = {
           },
         },
       },
+      areaId: true,
     },
   },
-  memberships: {
-    select: {
-      id: true,
-      discount: true,
-      fee: true,
-      clinic: {
-        select: {
-          id: true,
-          address: true,
-          user: {
-            select: {
-              id: true,
-              name: true,
-              image: true,
-            },
-          },
-          slug: true,
-          area: {
-            select: {
-              name: true,
-              district: {
-                select: { name: true },
-              },
-            },
-          },
-        },
-      },
-      doctor: {
-        select: {
-          id: true,
-          user: {
-            select: {
-              id: true,
-              name: true,
-              image: true,
-            },
-          },
-        },
-      },
-      schedules: true,
-    },
-  },
+
   slug: true,
   specialization: true,
   experience: true,
@@ -86,6 +48,56 @@ export const DOCTOR_SELECT = {
       phoneNumber: true,
       image: true,
       role: true,
+      deactivate: true,
+      isPhoneVerified: true,
+    },
+  },
+  memberships: {
+    select: {
+      diagnostic: {
+        select: {
+          user: {
+            select: { name: true },
+          },
+          slug: true,
+          address: true,
+          area: {
+            select: {
+              district: {
+                select: {
+                  name: true,
+                },
+              },
+              name: true,
+            },
+          },
+        },
+      },
+      id: true,
+      fee: true,
+      discount: true,
+      createdAt: true,
+    },
+  },
+} satisfies Prisma.DoctorSelect;
+export const EMERGENCY_DOCTOR_SELECT = {
+  id: true,
+
+  slug: true,
+  specialization: true,
+  experience: true,
+  hospital: true,
+  position: true,
+  website: true,
+  averageRating: true,
+  reviewsCount: true,
+
+  user: {
+    select: {
+      id: true,
+      name: true,
+      phoneNumber: true,
+      image: true,
       deactivate: true,
       isPhoneVerified: true,
     },

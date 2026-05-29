@@ -34,7 +34,7 @@ const getCurrentUser = async (userId: string): Promise<IUserResponse> => {
           id: true,
           staffType: true,
 
-          clinicId: true,
+          diagId: true,
         },
       },
     },
@@ -173,7 +173,7 @@ const getAllManagers = async (
           district: true,
           _count: {
             select: {
-              clinics: true,
+              diagnostics: true,
               doctors: true,
             },
           },

@@ -7,13 +7,14 @@ import hpp from 'hpp';
 import httpStatus from 'http-status';
 
 import router from './app/routes';
+import config from './config/config';
 import globalErrorHandler from './middlewares/globalErrorHandler';
 import { initializeFirebase } from './utils/firebaseAdmin';
 
 const app: Application = express();
 app.use(
   cors({
-    origin: 'https://sothik.vercel.app',
+    origin: config.origin || 'https://sothik.vercel.app',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],

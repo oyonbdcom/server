@@ -20,25 +20,25 @@ export const sendBatchNotification = async (tokens: string[], title: string, bod
 /**
  * Firestore-এ ডক্টরের লাইভ সেশন আপডেট করার ইউটিলিতি
  * @param doctorId - ডক্টরের আইডি
- * @param clinicId - ক্লিনিকের আইডি
+ * @param DiagId - ডায়াগনস্টিক আইডি
  * @param data - যা আপডেট করতে চান (status, runningSerial ইত্যাদি)
  */
 export const updateLiveSessionInFirestore = async (
   doctorId: string,
-  clinicId: string,
+  diagId: string,
   data: { runningSerial?: number; status: string },
 ) => {
   try {
     const db = admin.firestore();
 
-    const docId = `${doctorId}_${clinicId}`;
+    const docId = `${doctorId}_${diagId}`;
 
     const sessionRef = db.collection('live_sessions').doc(docId);
 
     await sessionRef.set(
       {
         doctorId,
-        clinicId,
+        diagId,
         runningSerial: data.runningSerial ?? 0,
         status: data.status,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),

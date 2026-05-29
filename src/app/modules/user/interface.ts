@@ -1,4 +1,5 @@
 import { UserRole } from '@prisma/client';
+import { IDiagnosticResponse } from '../diacnostic/interface';
 
 export interface IUserResponse {
   id: string;
@@ -9,7 +10,7 @@ export interface IUserResponse {
 
   doctor?: any;
   patient?: any;
-  clinic?: any;
+  diagnostic?: IDiagnosticResponse;
 }
 
 export const UserFilterableFields = ['searchTerm', 'role', 'emailVerified', 'active'];

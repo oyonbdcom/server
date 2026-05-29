@@ -18,14 +18,14 @@ router.post(
 router.patch(
   '/:id',
   protect,
-  restrictTo(UserRole?.DIAGNOSTIC_MANAGER, UserRole?.AREA_MANAGER),
+  restrictTo(UserRole?.DIAGNOSTIC, UserRole?.AREA_MANAGER),
   zodValidate(ScheduleZodValidation.updateScheduleSchema),
   ScheduleController.updateSchedule,
 );
 router.delete(
   '/:id',
   protect,
-  restrictTo(UserRole?.DIAGNOSTIC_MANAGER, UserRole?.AREA_MANAGER),
+  restrictTo(UserRole?.DIAGNOSTIC, UserRole?.AREA_MANAGER),
   ScheduleController.deleteSchedule,
 );
 

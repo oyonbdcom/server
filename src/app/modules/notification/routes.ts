@@ -10,7 +10,7 @@ const router = express.Router();
 router.post(
   '/register',
   protect,
-  restrictTo(UserRole.DIAGNOSTIC_MANAGER, UserRole.STAFF, UserRole.PATIENT),
+  restrictTo(UserRole.DIAGNOSTIC, UserRole.STAFF, UserRole.PATIENT),
 
   zodValidate(NotificationZodValidation.registerDeviceSchema),
   DeviceTokenController.createDeviceToken,

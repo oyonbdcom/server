@@ -1,8 +1,8 @@
 import z from 'zod';
 
 import { IAppointmentResponse } from '../appointment/interface';
+import { IReviewResponse } from '../doctor-review/interface';
 import { IAreaResponse } from '../location/interface';
-import { IReviewResponse } from '../review/interface';
 import { createDiagnosticSchema, updateDiagnosticSchema } from './zodValidation';
 
 export interface IDistrict {
@@ -27,7 +27,7 @@ export interface IDiagnosticResponse {
   updatedAt: string;
 }
 
-export interface IAreaClinicResponse {
+export interface IAreaDiagnosticResponse {
   id: string;
 
   name: string;
@@ -55,7 +55,7 @@ export interface IDiagnosticManagerStats {
   totalStaffs: number;
   staffActivities: IStaffActivity[];
 }
-export interface IClinicWithRelationsResponse extends IDiagnosticResponse {
+export interface IDiagnosticWithRelationsResponse extends IDiagnosticResponse {
   reviews?: IReviewResponse[];
 
   appointments?: IAppointmentResponse[];

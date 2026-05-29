@@ -35,7 +35,7 @@ export const registerSchema = z.object({
 
     confirmPassword: z.string().min(1, 'পাসওয়ার্ড নিশ্চিত করুন'),
 
-    role: z.enum(['PATIENT', 'DOCTOR', 'CLINIC']).default('PATIENT'),
+    role: z.enum(['PATIENT', 'DOCTOR', 'DIAGNOSTIC']).default('PATIENT'),
 
     image: z.string().url('ছবির ইউআরএল সঠিক নয়').optional().nullable(),
   }),
