@@ -147,12 +147,6 @@ const getDiagnostics = async (
   };
 };
 
-const staffRoleLabels = {
-  COORDINATOR: 'কো-অর্ডিনেটর',
-  RECEPTIONIST: 'রিসেপশনিস্ট',
-  ASSISTANT: 'সহকারী',
-} as const;
-
 const getTodayRange = () => {
   const today = new Date();
 
@@ -191,82 +185,43 @@ const getDiagnosticManagerStats = async (userId: string): Promise<IDiagnosticMan
     diagId,
   };
 
-  const [totalDoctors, todayAppointments, completedAppointments, totalStaffs, staffs] =
-    await Promise.all([
-      // TOTAL ACTIVE DOCTORS
-      prisma.membership.count({
-        where: {
-          diagId,
+  const [totalDoctors, todayAppointments, completedAppointments, totalStaffs] = await Promise.all([
+    // TOTAL ACTIVE DOCTORS
+    prisma.membership.count({
+      where: {
+        diagId,
+      },
+    }),
+
+    // TODAY APPOINTMENTS
+    prisma.appointment.count({
+      where: {
+        ...appointmentDiagnosticWhere,
+
+        createdAt: {
+          gte: startOfDay,
+          lt: endOfDay,
         },
-      }),
+      },
+    }),
 
-      // TODAY APPOINTMENTS
-      prisma.appointment.count({
-        where: {
-          ...appointmentDiagnosticWhere,
+    // COMPLETED APPOINTMENTS
+    prisma.appointment.count({
+      where: {
+        ...appointmentDiagnosticWhere,
+        status: 'COMPLETED',
+      },
+    }),
 
-          createdAt: {
-            gte: startOfDay,
-            lt: endOfDay,
-          },
-        },
-      }),
+    // TOTAL STAFFS
+    prisma.staff.count({
+      where: {
+        diagId,
+      },
+    }),
 
-      // COMPLETED APPOINTMENTS
-      prisma.appointment.count({
-        where: {
-          ...appointmentDiagnosticWhere,
-          status: 'COMPLETED',
-        },
-      }),
-
-      // TOTAL STAFFS
-      prisma.staff.count({
-        where: {
-          diagId,
-        },
-      }),
-
-      // STAFF ACTIVITIES
-      prisma.staff.findMany({
-        where: {
-          diagId,
-        },
-
-        take: 5,
-
-        orderBy: {
-          createdAt: 'desc',
-        },
-
-        select: {
-          id: true,
-          staffType: true,
-
-          user: {
-            select: {
-              name: true,
-
-              _count: {
-                select: {
-                  createdAppointments: true,
-                },
-              },
-            },
-          },
-
-          assignedDoctor: {
-            select: {
-              user: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-      }),
-    ]);
+    // STAFF ACTIVITIES
+  ]);
 
   return {
     totalDoctors,
@@ -276,18 +231,6 @@ const getDiagnosticManagerStats = async (userId: string): Promise<IDiagnosticMan
     completedAppointments,
 
     totalStaffs,
-
-    staffActivities: staffs.map((staff) => ({
-      id: staff.id,
-
-      name: staff.user.name,
-
-      role: staffRoleLabels[staff.staffType] || 'স্টাফ',
-
-      assignedDoctor: staff.assignedDoctor?.user?.name || null,
-
-      totalBookings: staff.user._count.createdAppointments,
-    })),
   };
 };
 

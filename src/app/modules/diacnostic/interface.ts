@@ -53,7 +53,6 @@ export interface IDiagnosticManagerStats {
   todayAppointments: number;
   completedAppointments: number;
   totalStaffs: number;
-  staffActivities: IStaffActivity[];
 }
 export interface IDiagnosticWithRelationsResponse extends IDiagnosticResponse {
   reviews?: IReviewResponse[];
