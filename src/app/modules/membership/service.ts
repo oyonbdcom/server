@@ -167,7 +167,7 @@ const getMembershipsBySlug = async (
   ]);
 
   const totalPage = Math.ceil(total / limit);
-  console.log(memberships);
+
   return {
     meta: {
       page: Number(page),

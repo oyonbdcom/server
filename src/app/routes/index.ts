@@ -13,6 +13,7 @@ import { FeedbackRoutes } from '../modules/feedback/routes';
 import { SetupRoutes } from '../modules/location/routes';
 import { MedicalHistoryRoutes } from '../modules/medical-history/routes';
 import { DeviceTokenRoutes } from '../modules/notification/routes';
+import { OrImageRoutes } from '../modules/og-image/route';
 import { PatientRoutes } from '../modules/patient/routes';
 import { ScheduleRoutes } from '../modules/schedule/routes';
 import { StaffRoutes } from '../modules/staff/routes';
@@ -88,6 +89,10 @@ const modulesRoute = [
   {
     path: '/upload',
     route: UploadRoutes,
+  },
+  {
+    path: '/og',
+    route: OrImageRoutes,
   },
   {
     path: '/device-token',

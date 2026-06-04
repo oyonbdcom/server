@@ -24,6 +24,7 @@
     "@firebase/firestore": "^4.14.1",
     "@prisma/client": "^6.19.0",
     "bcrypt": "^6.0.0",
+    "canvas": "^3.2.3",
     "cloudinary": "^2.8.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
