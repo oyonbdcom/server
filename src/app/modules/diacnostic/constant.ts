@@ -46,6 +46,7 @@ export const DIAGNOSTIC_SELECT = {
               name: true,
             },
           },
+          gender: true,
         },
       },
       id: true,

@@ -146,6 +146,9 @@ const getMembershipsBySlug = async (
                 name: true,
               },
             },
+            gender: true,
+            averageRating: true,
+            reviewsCount: true,
           },
         },
         diagnostic: {
@@ -155,6 +158,8 @@ const getMembershipsBySlug = async (
             area: true,
             address: true,
             slug: true,
+            averageRating: true,
+            reviewsCount: true,
           },
         },
         fee: true,

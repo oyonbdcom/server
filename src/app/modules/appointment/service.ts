@@ -405,7 +405,7 @@ const getCoordinatorDashboard = async (
   options: IOptions,
 ) => {
   const { page, limit, skip } = paginationCalculator(options);
-
+  console.log(userId);
   // =====================================================
   // STAFF VALIDATION
   // =====================================================
