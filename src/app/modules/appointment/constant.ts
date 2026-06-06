@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import config from '../../../config/config';
 import { jwtTokenHelper } from '../../../helper';
+import { generatePatientId } from '../../../utils/common';
 import { IUserResponse } from '../user/interface';
 
 interface ResolvePatientUserPayload {
@@ -61,7 +62,7 @@ export const resolvePatientUser = async ({
       userId: user.id,
     },
   });
-
+  const newPatientId = await generatePatientId(tx);
   // ================= 4. CREATE PATIENT IF NOT FOUND =================
   if (!patient) {
     patient = await tx.patient.create({
@@ -69,6 +70,7 @@ export const resolvePatientUser = async ({
         userId: user.id,
         age: ptAge ? Number(ptAge) : 0,
         address: address || null,
+        patientId: newPatientId,
       },
     });
   }
