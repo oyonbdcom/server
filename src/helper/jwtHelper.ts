@@ -3,7 +3,7 @@ import config from '../config/config';
 
 const accessToken = (payload: object) => {
   return jwt.sign(payload, config.jwt.access_secret, {
-    expiresIn: '5d',
+    expiresIn: '1m',
   });
 };
 const refreshToken = (payload: object) => {
