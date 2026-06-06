@@ -8,6 +8,7 @@ import config from '../../../config/config';
 import { jwtTokenHelper } from '../../../helper/jwtHelper';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
+import { generatePatientId } from '../../../utils/common';
 import { USER_SELECT } from '../user/constant';
 import { IUserResponse } from '../user/interface';
 import { ILoginResponse } from './interface';
@@ -69,11 +70,12 @@ const register = async (data: RegisterRequest & { otp: string }): Promise<ILogin
 
       select: USER_SELECT,
     });
-
+    const newPatientId = await generatePatientId(tx);
     // ================= DEFAULT SELF PATIENT =================
     await tx.patient.create({
       data: {
         userId: newUser.id,
+        patientId: newPatientId,
       },
     });
 

@@ -13,6 +13,7 @@ import config from '../../../config/config';
 import { IOptions, paginationCalculator } from '../../../helper';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
+import { generatePatientId } from '../../../utils/common';
 import {
   sendBatchNotification,
   updateLiveSessionInFirestore,
@@ -405,7 +406,7 @@ const getCoordinatorDashboard = async (
   options: IOptions,
 ) => {
   const { page, limit, skip } = paginationCalculator(options);
-  console.log(userId);
+
   // =====================================================
   // STAFF VALIDATION
   // =====================================================
@@ -838,8 +839,6 @@ const createAppointmentByDiagnosticStaff = async (payload: any, staffUserId: str
       where: { phoneNumber },
     });
 
-    let patient;
-
     if (!patientUser) {
       // ২. যদি ইউজার না থাকে, তবে নতুন ইউজার তৈরি করবে
       patientUser = await tx.user.create({
@@ -850,13 +849,14 @@ const createAppointmentByDiagnosticStaff = async (payload: any, staffUserId: str
           role: UserRole.PATIENT,
         },
       });
-
+      const newPatientId = await generatePatientId(tx);
       // ৩. এবং তার জন্য একটি নতুন পেশেন্ট প্রোফাইল তৈরি করবে
-      patient = await tx.patient.create({
+      await tx.patient.create({
         data: {
           userId: patientUser.id,
           age: Number(ptAge),
           address: address || null,
+          patientId: newPatientId,
         },
       });
     }

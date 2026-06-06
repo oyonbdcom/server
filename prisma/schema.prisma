@@ -399,13 +399,13 @@ model EmergencyRequest {
 }
 
 model Patient {
-  id      String  @id @default(cuid())
-  age     Int     @default(0)
-  gender  Gender  @default(MALE)
-  address String?
-  userId  String  @unique
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  id        String   @id @default(cuid())
+  age       Int      @default(0)
+  gender    Gender   @default(MALE)
+  address   String?
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patientId String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
