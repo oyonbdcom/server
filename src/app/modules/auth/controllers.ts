@@ -32,9 +32,8 @@ const login = catchAsync(async (req, res) => {
 
   res.cookie('refreshToken', result.refreshToken, {
     httpOnly: true,
-    secure: true, // মাস্ট (HTTPS এর জন্য)
-    sameSite: 'none', // মাস্ট (Cross-origin এর জন্য)
-    domain: 'sothik.vercel.app',
+    secure: true,
+    sameSite: 'none',
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/',
   });
