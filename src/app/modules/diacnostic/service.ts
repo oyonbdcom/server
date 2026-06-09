@@ -2,14 +2,15 @@ import { Prisma, UserRole } from '@prisma/client';
 import httpStatus from 'http-status';
 
 import bcrypt from 'bcrypt';
+import dayjs from 'dayjs';
 import { IOptions, paginationCalculator } from '../../../helper/pagination';
 import { IGenericResponse } from '../../../interface/common';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
+import { bdEndOfDay, bdStartOfDay } from '../../../utils/timezone';
 import { DIAGNOSTIC_SELECT, IDiagnosticFilterRequest } from './constant';
 import {
   ICreateDiagnosticRequest,
-  IDiagnosticManagerStats,
   IDiagnosticResponse,
   IUpdateDiagnosticRequest,
 } from './interface';
@@ -147,90 +148,120 @@ const getDiagnostics = async (
   };
 };
 
-const getTodayRange = () => {
-  const today = new Date();
-
-  return {
-    startOfDay: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
-
-    endOfDay: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1),
-  };
-};
-
 // manager dashboard stats
-const getDiagnosticManagerStats = async (userId: string): Promise<IDiagnosticManagerStats> => {
-  const { startOfDay, endOfDay } = getTodayRange();
-  const diagnostic = await prisma.diagnostic.findUnique({
-    where: {
-      userId,
-    },
+const getDiagnosticManagerStats = async (diagId: string, startDate?: any, endDate?: any) => {
+  // ১. ডেট রেঞ্জ ক্যালকুলেশন (ফিল্টার কার্যকর করা)
+  const end = bdEndOfDay(endDate);
+  const start = bdStartOfDay(startDate);
 
-    select: {
-      id: true,
-      user: {
-        select: {
-          name: true,
-        },
-      },
-    },
+  const diagnostic = await prisma.diagnostic.findUnique({
+    where: { userId: diagId },
+    select: { id: true, balance: true },
   });
 
   if (!diagnostic) {
-    throw new Error('ক্লিনিক পাওয়া যায়নি');
+    throw new ApiError(404, 'Diagnostic profile not found');
   }
 
-  const diagId = diagnostic.id;
-  // COMMON APPOINTMENT FILTER
-  const appointmentDiagnosticWhere = {
-    diagId,
-  };
+  // ২. ফিল্টার করা অ্যানালিটিক্স রেকর্ড আনা
+  const records = await prisma.diagnosticAnalytics.findMany({
+    where: {
+      diagId: diagnostic.id,
+      date: { gte: start, lte: end },
+    },
+    orderBy: { date: 'asc' }, // গ্রাফের জন্য তারিখ অনুযায়ী সাজানো
+    select: {
+      totalBookings: true,
+      completedCount: true,
+      cancelledCount: true,
+      platformBookings: true,
+      doctorStats: true,
+      staffStats: true,
+      date: true,
+    },
+  });
 
-  const [totalDoctors, todayAppointments, completedAppointments, totalStaffs] = await Promise.all([
-    // TOTAL ACTIVE DOCTORS
-    prisma.membership.count({
-      where: {
-        diagId,
-      },
-    }),
+  // ৩. এগ্রিগেশন লজিক
+  let totalBookings = 0;
+  let completedCount = 0;
+  let cancelledCount = 0;
+  let platformBookings = 0;
 
-    // TODAY APPOINTMENTS
-    prisma.appointment.count({
-      where: {
-        ...appointmentDiagnosticWhere,
+  const docStatsMap: Record<string, number> = {};
+  const staffStatsMap: Record<string, number> = {};
 
-        createdAt: {
-          gte: startOfDay,
-          lt: endOfDay,
-        },
-      },
-    }),
+  // চার্ট ডাটা ম্যাপ করা
+  const chartData = records.map((row) => ({
+    date: dayjs(row.date).format('D/M'),
+    bookings: row.totalBookings,
+  }));
 
-    // COMPLETED APPOINTMENTS
-    prisma.appointment.count({
-      where: {
-        ...appointmentDiagnosticWhere,
-        status: 'COMPLETED',
-      },
-    }),
+  records.forEach((row) => {
+    totalBookings += row.totalBookings;
+    completedCount += row.completedCount;
+    cancelledCount += row.cancelledCount;
+    platformBookings += row.platformBookings;
 
-    // TOTAL STAFFS
-    prisma.staff.count({
-      where: {
-        diagId,
-      },
-    }),
+    const dStats = (row.doctorStats as Record<string, number>) || {};
+    Object.entries(dStats).forEach(([id, count]) => {
+      docStatsMap[id] = (docStatsMap[id] || 0) + Number(count);
+    });
 
-    // STAFF ACTIVITIES
+    const sStats = (row.staffStats as Record<string, number>) || {};
+    Object.entries(sStats).forEach(([id, count]) => {
+      staffStatsMap[id] = (staffStatsMap[id] || 0) + Number(count);
+    });
+  });
+
+  // ৪. ডক্টর এবং স্টাফ ইনফো ফেচ করা
+  const docIds = Object.keys(docStatsMap);
+  const staffIds = Object.keys(staffStatsMap);
+
+  const [doctors, staffs] = await Promise.all([
+    docIds.length > 0
+      ? prisma.doctor.findMany({
+          where: { id: { in: docIds } },
+          select: {
+            id: true,
+            user: { select: { name: true } },
+            department: { select: { name: true } },
+          },
+        })
+      : [],
+    staffIds.length > 0
+      ? prisma.staff.findMany({
+          where: { id: { in: staffIds } },
+          select: {
+            id: true,
+            userId: true,
+            user: { select: { name: true, role: true } },
+          },
+        })
+      : [],
   ]);
 
   return {
-    totalDoctors,
-
-    todayAppointments,
-
-    completedAppointments,
-
-    totalStaffs,
+    summary: {
+      totalBookings,
+      completedCount,
+      cancelledCount,
+      platformBookings,
+      staffManualBookings: totalBookings - platformBookings,
+    },
+    doctorPerformance: doctors.map((doc) => ({
+      doctorId: doc.id,
+      name: doc.user?.name,
+      specialty: doc.department?.name,
+      appointmentCount: docStatsMap[doc.id] || 0,
+    })),
+    walletBalance: diagnostic?.balance,
+    staffPerformance: staffs.map((staff) => ({
+      staffId: staff.id,
+      name: staff.user?.name,
+      role: staff.user?.role,
+      appointmentCount: staffStatsMap[staff.id] || 0,
+    })),
+    chartData,
   };
 };
 
@@ -268,6 +299,7 @@ const getDiagnosticByIdentifier = async (identifier: string): Promise<IDiagnosti
 
   return diagnostic as unknown as IDiagnosticResponse;
 };
+
 const getAllAreaDiagnostics = async (
   filter: IDiagnosticFilterRequest,
   options: IOptions,

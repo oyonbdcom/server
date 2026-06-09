@@ -42,17 +42,36 @@ export type ICreateDiagnosticRequest = z.infer<typeof createDiagnosticSchema>['b
 
 export type IUpdateDiagnosticRequest = z.infer<typeof updateDiagnosticSchema>['body'];
 export interface IStaffActivity {
-  id: string;
+  staffId: string;
   name: string;
   role: string;
-  totalBookings: number;
+  appointmentCount: number;
+}
+
+export interface IDoctorPerformance {
+  doctorId: string;
+  name: string;
+  specialty: string;
+  appointmentCount: number;
+}
+
+export interface IChartData {
+  date: string;
+  bookings: number;
 }
 
 export interface IDiagnosticManagerStats {
-  totalDoctors: number;
-  todayAppointments: number;
-  completedAppointments: number;
-  totalStaffs: number;
+  summary: {
+    totalBookings: number;
+    completedCount: number;
+    cancelledCount: number;
+    platformBookings: number;
+    staffManualBookings: number;
+  };
+  walletBalance: number;
+  doctorPerformance: IDoctorPerformance[];
+  staffPerformance: IStaffActivity[]; // আগে staffActivities ছিল, আপনার JSON অনুযায়ী এটি আপডেট করা হয়েছে
+  chartData: IChartData[];
 }
 export interface IDiagnosticWithRelationsResponse extends IDiagnosticResponse {
   reviews?: IReviewResponse[];

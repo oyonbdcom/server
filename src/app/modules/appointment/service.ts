@@ -5,7 +5,6 @@ import {
   Prisma,
   UserRole,
 } from '@prisma/client';
-import bcrypt from 'bcrypt';
 
 import httpStatus from 'http-status';
 import { JwtPayload } from 'jsonwebtoken';
@@ -13,14 +12,19 @@ import config from '../../../config/config';
 import { IOptions, paginationCalculator } from '../../../helper';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
-import { generatePatientId } from '../../../utils/common';
 import {
   sendBatchNotification,
   updateLiveSessionInFirestore,
 } from '../../../utils/notification.utils';
 import { bdEndOfDay, bdStartOfDay } from '../../../utils/timezone';
 import { IGenericResponse } from './../../../interface/common';
-import { appointmentPopulate, normalizePhone } from './constant';
+import {
+  appointmentPopulate,
+  normalizePhone,
+  notifyCoordinator,
+  resolvePatientUser,
+  updateDiagnosticAnalytics,
+} from './constant';
 import { IAppointmentCreateInput, IAppointmentResponse, IAppointmentStats } from './interface';
 
 interface IGetAppointmentsFilters {
@@ -624,9 +628,124 @@ const getCoordinatorDashboard = async (
     },
   };
 };
-
-// normal user for create appoitment
 const createAppointment = async (payload: IAppointmentCreateInput, authUser: JwtPayload) => {
+  if (!authUser?.id) {
+    throw new ApiError(401, 'Please login first');
+  }
+  const user = await prisma.user.findUnique({
+    where: { id: authUser.id },
+    include: { patient: true },
+  });
+
+  if (!user || !user.patient) {
+    throw new ApiError(404, 'User or Patient profile not found');
+  }
+
+  const dayStart = bdStartOfDay(payload.appointmentDate);
+  const dayEnd = bdEndOfDay(payload.appointmentDate);
+
+  // ট্রানজেকশন শুরু
+  const result = await prisma.$transaction(async (tx) => {
+    // ১. মেম্বারশিপ চেক
+    const membership = await tx.membership.findFirst({
+      where: {
+        doctorId: payload.doctorId,
+        diagId: payload.diagId,
+        id: payload.membershipId,
+      },
+    });
+
+    if (!membership) throw new ApiError(404, 'Invalid doctor-diagnostic membership');
+
+    const exists = await tx.appointment.findFirst({
+      where: {
+        patientName: payload?.patientName?.trim(),
+        age: Number(payload?.ptAge),
+        doctorId: payload.doctorId,
+        diagId: payload?.diagId,
+        appointmentDate: { gte: dayStart, lte: dayEnd },
+        status: { in: ['SCHEDULED', 'PENDING'] },
+      },
+    });
+
+    if (exists) throw new ApiError(409, 'You already booked an appointment today');
+
+    // ২. সিরিয়াল আপডেট
+    const counter = await tx.appointmentCounter.upsert({
+      where: {
+        doctorId_diagId_date: {
+          doctorId: membership.doctorId,
+          diagId: membership.diagId,
+          date: dayStart,
+        },
+      },
+      update: { lastSerial: { increment: 1 } },
+      create: {
+        doctorId: membership.doctorId,
+        diagId: membership.diagId,
+        date: dayStart,
+        lastSerial: 1,
+      },
+    });
+
+    // ৩. অ্যাপয়েন্টমেন্ট তৈরি
+    const appointment = await tx.appointment.create({
+      data: {
+        appointmentDate: dayStart,
+        patientName: payload.patientName.trim(),
+        age: Number(payload.ptAge),
+        contactNumber: payload.phoneNumber,
+        serialNumber: counter.lastSerial,
+        status: 'SCHEDULED',
+        doctorId: payload.doctorId,
+        diagId: payload.diagId,
+        membershipId: payload.membershipId,
+        createdById: user.id,
+      },
+      include: {
+        doctor: { include: { user: true } },
+        diagnostic: true,
+      },
+    });
+
+    await updateDiagnosticAnalytics(
+      tx,
+      payload?.diagId,
+      payload?.doctorId,
+      undefined,
+      dayStart,
+      'PLATFORM',
+    );
+    return { appointment, serialNumber: counter.lastSerial, userId: user.id };
+  });
+
+  // =================================================
+  // ৫. COORDINATOR-কে নোটিফিকেশন পাঠানো
+  // =================================================
+  const coordinators = await prisma.staff.findMany({
+    where: {
+      assignedDoctorId: payload.doctorId,
+      diagId: payload.diagId,
+      staffType: 'COORDINATOR',
+    },
+    select: { user: { select: { deviceTokens: { select: { token: true } } } } },
+  });
+
+  const tokens = coordinators.flatMap((c) => c.user.deviceTokens.map((dt) => dt.token));
+
+  if (tokens.length > 0) {
+    const title = 'নতুন অ্যাপয়েন্টমেন্ট বুকিং';
+    const body = `${result.appointment.patientName} সিরিয়াল ${result.serialNumber}-এ বুকিং করেছেন।`;
+    sendBatchNotification(tokens, title, body);
+  }
+
+  return result;
+};
+// normal user for create appoitment
+const emergencyCreateAppointment = async (
+  payload: IAppointmentCreateInput,
+  authUser: JwtPayload,
+) => {
   if (!authUser?.id) {
     throw new ApiError(401, 'Please login first');
   }
@@ -805,7 +924,7 @@ const createAppointment = async (payload: IAppointmentCreateInput, authUser: Jwt
  */
 const createAppointmentByDiagnosticStaff = async (payload: any, staffUserId: string) => {
   const { patientName, phoneNumber, ptAge, doctorId, address, membershipId } = payload;
-
+  console.log(doctorId);
   // ================= STAFF & diagnostic INFO =================
   const staffUser = await prisma.user.findUnique({
     where: { id: staffUserId },
@@ -813,7 +932,7 @@ const createAppointmentByDiagnosticStaff = async (payload: any, staffUserId: str
       role: true,
       id: true,
       diagnostic: { select: { id: true } },
-      staff: { select: { diagId: true } },
+      staff: { select: { diagId: true, id: true } },
     },
   });
 
@@ -824,42 +943,13 @@ const createAppointmentByDiagnosticStaff = async (payload: any, staffUserId: str
   if (!diagId) throw new ApiError(httpStatus.FORBIDDEN, 'আপনি কোনো ক্লিনিকের সাথে যুক্ত নন');
 
   // ================= DATE =================
-  const appointmentDate = new Date(payload.appointmentDate || new Date());
-  const dayStart = bdStartOfDay(appointmentDate);
-  const dayEnd = bdEndOfDay(appointmentDate);
+
+  const dayStart = bdStartOfDay(payload.appointmentDate || new Date());
+  const dayEnd = bdEndOfDay(payload.appointmentDate || new Date());
 
   // সাকসেসফুল ট্রানজেকশন শেষে নোটিফিকেশন পাঠানোর জন্য রেজাল্ট স্টোর করা
   const result = await prisma.$transaction(async (tx) => {
-    // ১. পাসওয়ার্ড হ্যাশিং
-    const hashedPassword = await bcrypt.hash(config.default_password || 'Password@123', 12);
-
-    // ২. ইউজার তৈরি বা খুঁজে বের করা
-    // ১. ইউজার খুঁজে বের করা বা তৈরি করা
-    let patientUser = await tx.user.findUnique({
-      where: { phoneNumber },
-    });
-
-    if (!patientUser) {
-      // ২. যদি ইউজার না থাকে, তবে নতুন ইউজার তৈরি করবে
-      patientUser = await tx.user.create({
-        data: {
-          name: patientName.trim(),
-          phoneNumber,
-          password: hashedPassword,
-          role: UserRole.PATIENT,
-        },
-      });
-      const newPatientId = await generatePatientId(tx);
-      // ৩. এবং তার জন্য একটি নতুন পেশেন্ট প্রোফাইল তৈরি করবে
-      await tx.patient.create({
-        data: {
-          userId: patientUser.id,
-          age: Number(ptAge),
-          address: address || null,
-          patientId: newPatientId,
-        },
-      });
-    }
+    await resolvePatientUser({ tx, phoneNumber, patientName, address, ptAge });
 
     // ৪. ডুপ্লিকেট চেক
     const existingAppointment = await tx.appointment.findFirst({
@@ -888,11 +978,11 @@ const createAppointmentByDiagnosticStaff = async (payload: any, staffUserId: str
     });
 
     // ৬. অ্যাপয়েন্টমেন্ট তৈরি
-    return await tx.appointment.create({
+    const appt = await tx.appointment.create({
       data: {
-        appointmentDate,
+        appointmentDate: dayStart,
         patientName: patientName.trim(),
-        age: Number(ptAge),
+        age: 0,
         address: address || null,
         contactNumber: phoneNumber,
         serialNumber: counter.lastSerial,
@@ -905,38 +995,18 @@ const createAppointmentByDiagnosticStaff = async (payload: any, staffUserId: str
       },
       include: { doctor: true, diagnostic: true },
     });
+    await updateDiagnosticAnalytics(
+      tx,
+      diagId,
+      doctorId,
+      staffUser.staff?.id || staffUser?.id || 'SYSTEM',
+      dayStart,
+      'STAFF',
+    );
+    return appt;
   });
 
-  // =================================================
-  // ৭. COORDINATOR-কে নোটিফিকেশন পাঠানো (💡 Logic)
-  // =================================================
-
-  // ওই ডক্টরের ওই ক্লিনিকের কো-অর্ডিনেটরদের খুঁজে বের করা
-  const coordinators = await prisma.staff.findMany({
-    where: {
-      assignedDoctorId: doctorId,
-      diagId: diagId,
-      staffType: 'COORDINATOR',
-    },
-    select: {
-      userId: true,
-      user: {
-        select: {
-          deviceTokens: { select: { token: true } },
-        },
-      },
-    },
-  });
-
-  const coordinatorTokens = coordinators.flatMap((c) => c.user.deviceTokens.map((dt) => dt.token));
-
-  if (coordinatorTokens.length > 0) {
-    const title = 'নতুন অ্যাপয়েন্টমেন্ট';
-    const body = `${result.patientName} (সিরিয়াল: ${result.serialNumber}) আজ অ্যাপয়েন্টমেন্ট নিয়েছেন।`;
-
-    // একবারে সব কো-অর্ডিনেটরকে নোটিফিকেশন পাঠানো
-    sendBatchNotification(coordinatorTokens, title, body);
-  }
+  await notifyCoordinator({ result, doctorId, diagId });
 
   return result;
 };
@@ -1019,48 +1089,80 @@ const requestEmergency = async (userId: string, appointmentId: string) => {
 
 const completeAppointment = async (appointmentId: string) => {
   return await prisma.$transaction(async (tx) => {
+    // ১. অ্যাপয়েন্টমেন্ট আপডেট এবং ডাটা ফেচ
     const appointment = await tx.appointment.update({
       where: { id: appointmentId },
       data: { status: 'COMPLETED' },
       select: {
         doctorId: true,
-        diagId: true, // এটি Schema তে optional
+        diagId: true,
         serialNumber: true,
+        source: true, // PLATFORM বা STAFF
       },
     });
 
-    // ২. ইমার্জেন্সি কি না তা চেক করা
+    if (!appointment.diagId) {
+      throw new Error(`Diagnostic ID missing for appointment: ${appointmentId}`);
+    }
+
+    // ২. ব্যালেন্স কমানোর লজিক
+    const deduction = appointment.source === 'PLATFORM' ? 100 : 5;
+    await tx.diagnostic.update({
+      where: { id: appointment.diagId },
+      data: {
+        balance: { decrement: deduction },
+      },
+    });
+
+    // ৩. Wallet Ledger এন্ট্রি (Transaction History)
+    await tx.walletLedger.create({
+      data: {
+        diagId: appointment.diagId,
+        amount: deduction,
+        type: 'DEBIT',
+        source: appointment.source, // 'PLATFORM' বা 'STAFF'
+        referenceId: appointmentId,
+        description: `${appointment.source} booking fee deduction`,
+      },
+    });
+
+    // ৪. DiagnosticAnalytics আপডেট
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    await tx.diagnosticAnalytics.update({
+      where: {
+        diagId_date: {
+          diagId: appointment.diagId,
+          date: today,
+        },
+      },
+      data: {
+        completedCount: { increment: 1 },
+        // এখানে সোর্স অনুযায়ী আলাদা ফিল্ড ইনক্রিমেন্ট করছি (আপনার স্কিমা অনুযায়ী)
+        platformBookings: appointment.source === 'PLATFORM' ? { increment: 1 } : undefined,
+      },
+    });
+
+    // ৫. ইমার্জেন্সি চেক এবং সিরিয়াল আপডেট
     const emergency = await tx.emergencyRequest.findFirst({
       where: { appointmentId: appointmentId },
     });
 
-    // ৩. সিরিয়াল আপডেট লজিক
-    // এখানে !emergency এবং diagnosticId এর অস্তিত্ব চেক করা হচ্ছে
     if (!emergency) {
-      if (!appointment.diagId) {
-        throw new Error(`diagnostic ID missing for appointment: ${appointmentId}`);
-      }
-
       await tx.doctorSession.updateMany({
         where: {
           doctorId: appointment.doctorId,
           diagId: appointment.diagId,
           status: 'ACTIVE',
         },
-        data: {
-          runningSerial: appointment.serialNumber,
-        },
+        data: { runningSerial: appointment.serialNumber },
       });
 
-      // ৪. Firestore-এ আপডেট পাঠানো
       await updateLiveSessionInFirestore(appointment.doctorId, appointment.diagId, {
         runningSerial: appointment.serialNumber,
         status: 'ACTIVE',
       });
-
-      console.log(`Normal appointment completed. Serial updated to: ${appointment.serialNumber}`);
-    } else {
-      console.log('Emergency appointment completed. Serial tracking remains unchanged.');
     }
 
     return appointment;
@@ -1144,7 +1246,7 @@ const updateAppointment = async (
     data: {
       patientName: payload?.patientName,
       age: payload.ptAge,
-      appointmentDate: payload?.appointmentDate,
+      appointmentDate: bdStartOfDay(payload?.appointmentDate),
       doctorId: payload?.doctorId,
       contactNumber: payload?.phoneNumber,
       address: payload?.address,
@@ -1253,8 +1355,8 @@ const updateDoctorSession = async (
       diagId: staff.diagId,
       status: 'SCHEDULED',
       appointmentDate: {
-        gte: new Date(new Date().setHours(0, 0, 0, 0)),
-        lte: new Date(new Date().setHours(23, 59, 59, 999)),
+        gte: bdStartOfDay(new Date()),
+        lte: bdEndOfDay(new Date()),
       },
     },
     include: {

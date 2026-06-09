@@ -241,6 +241,7 @@ model DoctorArea {
 model Diagnostic {
   id            String             @id @default(cuid())
   userId        String             @unique
+  balance       Float              @default(0)
   user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   slug          String             @unique
   reviews       DiagnosticReview[]
@@ -257,6 +258,38 @@ model Diagnostic {
   updatedAt     DateTime           @updatedAt
 
   @@index([areaId])
+}
+
+model DiagnosticAnalytics {
+  id     String   @id @default(cuid())
+  diagId String
+  date   DateTime
+
+  // সামারি ডাটা
+  totalBookings    Int @default(0)
+  completedCount   Int @default(0)
+  cancelledCount   Int @default(0)
+  platformBookings Int @default(0)
+
+  // ডাইনামিক স্ট্যাটিস্টিক্স (JSON)
+  doctorStats Json? // { "doc_id": count }
+  staffStats  Json? // { "staff_id": count }
+
+  @@unique([diagId, date])
+  @@index([diagId, date])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  diagId    String // ক্লিনিক আইডি
+  userId    String // কে কাজটি করেছে (Staff/Doctor ID)
+  action    String // যেমন: "CREATE_APPOINTMENT", "UPDATE_STATUS"
+  entity    String // যেমন: "APPOINTMENT"
+  entityId  String // সংশ্লিষ্ট ডাটার আইডি
+  details   Json? // আগের ভ্যালু এবং নতুন ভ্যালুর পার্থক্য বা অতিরিক্ত তথ্য
+  createdAt DateTime @default(now())
+
+  @@index([diagId, createdAt])
 }
 
 model Staff {
@@ -330,6 +363,18 @@ model AppointmentCounter {
   lastSerial Int
 
   @@unique([doctorId, diagId, date])
+}
+
+model WalletLedger {
+  id          String   @id @default(cuid())
+  diagId      String
+  amount      Float
+  type        String // "DEBIT" or "CREDIT"
+  source      String // "PLATFORM", "STAFF", "RECHARGE"
+  status      String   @default("COMPLETED") // "PENDING", "COMPLETED", "FAILED"
+  referenceId String?
+  description String?
+  createdAt   DateTime @default(now())
 }
 
 model Appointment {

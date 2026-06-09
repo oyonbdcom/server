@@ -69,6 +69,8 @@ export const DiagnosticFilterableFields = [
   'district',
   'area',
   'minRating',
+  'startDate',
+  'endDate',
 ];
 
 export interface IDiagnosticFilterRequest {

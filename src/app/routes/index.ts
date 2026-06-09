@@ -10,6 +10,7 @@ import { DoctorRoutes } from '../modules/doctor/routes';
 import { DiagnosticReviewsRoutes } from '../modules/diagnostic-review/routes';
 import { DoctorReviewsRoutes } from '../modules/doctor-review/routes';
 import { FeedbackRoutes } from '../modules/feedback/routes';
+import { WalletLedgerRoutes } from '../modules/ledger/routes';
 import { SetupRoutes } from '../modules/location/routes';
 import { MedicalHistoryRoutes } from '../modules/medical-history/routes';
 import { DeviceTokenRoutes } from '../modules/notification/routes';
@@ -68,6 +69,10 @@ const modulesRoute = [
   {
     path: '/diagnostic',
     route: DiagnosticRoutes,
+  },
+  {
+    path: '/wallet-ledger',
+    route: WalletLedgerRoutes,
   },
   {
     path: '/staff',

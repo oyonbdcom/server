@@ -80,7 +80,14 @@ const getDiagnosticManagerStats = catchAsync(async (req, res) => {
   if (!userId) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized');
   }
-  const result = await DiagnosticService.getDiagnosticManagerStats(userId);
+
+  const filter = pick(req.query, DiagnosticFilterableFields);
+
+  const result = await DiagnosticService.getDiagnosticManagerStats(
+    userId,
+    filter.startDate,
+    filter.endDate,
+  );
 
   sendResponse<IDiagnosticManagerStats>(res, {
     statusCode: httpStatus.OK,

@@ -19,7 +19,7 @@ export const CreateAppointmentSchema = z.object({
 
     isEmergency: z.boolean().default(false),
 
-    diagId: z.string().optional(),
+    diagId: z.string(),
     membershipId: z.string().optional(),
 
     // 🔥 FLAT emergency fields

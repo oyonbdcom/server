@@ -5,8 +5,15 @@ import config from '../config/config';
 import { IGenericErrorResponse, IGenericErrors } from '../interface/common';
 import ApiError from '../utils/apiError';
 
-// --- PRISMA ERROR HANDLERS ---
+// --- Sentry ERROR HANDLERS ---
+import * as Sentry from '@sentry/node';
 
+Sentry.init({
+  dsn: 'https://676c7cc3b40f4bf00bb5350cc93b42ee@o4511520031703040.ingest.de.sentry.io/4511520036814928',
+  // Setting this option to true will send default PII data to Sentry.
+  // For example, automatic IP address collection on events
+  sendDefaultPii: true,
+});
 // Handle Prisma P2002 Unique constraint error
 const handlePrismaUniqueError = (
   error: Prisma.PrismaClientKnownRequestError,
@@ -80,7 +87,7 @@ const globalErrorHandler: ErrorRequestHandler = (error, req, res, next) => {
   let statusCode = 500;
   let message = 'Something went wrong!';
   let errorMessages: IGenericErrors[] = [];
-
+  Sentry.captureException(error);
   // 🔥 Prisma Known Errors
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     switch (error.code) {
@@ -138,6 +145,7 @@ const globalErrorHandler: ErrorRequestHandler = (error, req, res, next) => {
     success: false,
     message,
     errorMessages,
+    // sentryEventId: res.sentry,
     stack: config.env !== 'production' ? error?.stack : undefined,
   });
 };
