@@ -46,7 +46,7 @@ const createDiagnostic = async (
     data: {
       slug: DiagnosticData.slug,
       address: DiagnosticData.address,
-
+      balance: 5000,
       area: {
         connect: {
           id: managerProfile.areaId,
@@ -300,155 +300,98 @@ const getDiagnosticByIdentifier = async (identifier: string): Promise<IDiagnosti
   return diagnostic as unknown as IDiagnosticResponse;
 };
 
+// ***************
+//     area diagnostics
+// ******************
+const getAllAreaDiagnosticsName = async (userId: string): Promise<IDiagnosticResponse[]> => {
+  // ১. ম্যানেজার প্রোফাইল চেক
+  const managerProfile = await prisma.manager.findUnique({
+    where: { userId },
+    select: { areaId: true },
+  });
+
+  if (!managerProfile?.areaId) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
+  }
+
+  const diagnostics = await prisma.diagnostic.findMany({
+    where: {
+      areaId: managerProfile.areaId,
+    },
+    orderBy: { averageRating: 'desc' },
+    select: {
+      id: true,
+      user: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  // ৩. রিটার্ন ডেটা
+  return diagnostics as unknown as IDiagnosticResponse[];
+};
+
 const getAllAreaDiagnostics = async (
   filter: IDiagnosticFilterRequest,
   options: IOptions,
   userId: string,
 ): Promise<IGenericResponse<IDiagnosticResponse[]>> => {
-  // =====================================================
-  // FILTERS
-  // =====================================================
-
-  const { searchTerm, deactivate } = filter;
-
-  // =====================================================
-  // MANAGER CHECK
-  // =====================================================
-
+  // ১. ম্যানেজার চেক
   const managerProfile = await prisma.manager.findUnique({
-    where: {
-      userId,
-    },
-
-    select: {
-      areaId: true,
-    },
+    where: { userId },
+    select: { areaId: true },
   });
 
   if (!managerProfile?.areaId) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
+    throw new ApiError(httpStatus.FORBIDDEN, 'আপনার কোনো এরিয়া অ্যাসাইন করা নেই!');
   }
 
-  // =====================================================
-  // WHERE CONDITIONS
-  // =====================================================
-
+  // ২. ফিল্টার কন্ডিশন তৈরি
   const andConditions: Prisma.DiagnosticWhereInput[] = [];
+  andConditions.push({ areaId: managerProfile.areaId });
 
-  // Area Scope
-  andConditions.push({
-    areaId: managerProfile.areaId,
-  });
+  const { searchTerm, deactivate } = filter;
 
-  // Search
   if (searchTerm) {
     andConditions.push({
       OR: [
-        {
-          user: {
-            name: {
-              contains: searchTerm,
-              mode: 'insensitive',
-            },
-          },
-        },
-
-        {
-          user: {
-            phoneNumber: {
-              contains: searchTerm,
-              mode: 'insensitive',
-            },
-          },
-        },
+        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { phoneNumber: { contains: searchTerm, mode: 'insensitive' } } },
       ],
     });
   }
 
-  // Deactivate Filter
   if (deactivate !== undefined) {
-    andConditions.push({
-      user: {
-        deactivate: deactivate === 'true',
-      },
-    });
+    andConditions.push({ user: { deactivate: deactivate === 'true' } });
   }
 
-  const whereCondition: Prisma.DiagnosticWhereInput =
-    andConditions.length > 0
-      ? {
-          AND: andConditions,
-        }
-      : {};
+  const whereCondition: Prisma.DiagnosticWhereInput = { AND: andConditions };
 
-  // =====================================================
-  // OPTIONAL PAGINATION
-  // =====================================================
+  // ৩. প্যাজিনেশন ক্যালকুলেশন
+  const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
 
-  const shouldPaginate = !!options?.page && !!options?.limit;
-
-  let pagination: {
-    skip?: number;
-    take?: number;
-  } = {};
-
-  let meta:
-    | {
-        page: number;
-        limit: number;
-        total: number;
-        totalPage: number;
-      }
-    | undefined;
-
-  if (shouldPaginate) {
-    const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
-
-    pagination = {
+  // ৪. ডাটাবেজ কুয়েরি (Promise.all ব্যবহার করে পারফরম্যান্স বাড়ানো)
+  const [data, total] = await Promise.all([
+    prisma.diagnostic.findMany({
+      where: whereCondition,
       skip,
       take: limit,
-    };
+      orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
+      select: DIAGNOSTIC_SELECT,
+    }),
+    prisma.diagnostic.count({ where: whereCondition }),
+  ]);
 
-    const total = await prisma.diagnostic.count({
-      where: whereCondition,
-    });
-
-    meta = {
+  return {
+    meta: {
       page,
       limit,
       total,
       totalPage: Math.ceil(total / limit),
-    };
-  }
-
-  // =====================================================
-  // QUERY
-  // =====================================================
-
-  const diagnostics = await prisma.diagnostic.findMany({
-    where: whereCondition,
-
-    ...pagination,
-
-    orderBy:
-      options?.sortBy && options?.sortOrder
-        ? {
-            [options.sortBy]: options.sortOrder,
-          }
-        : {
-            createdAt: 'desc',
-          },
-
-    select: DIAGNOSTIC_SELECT,
-  });
-
-  // =====================================================
-  // RETURN
-  // =====================================================
-
-  return {
-    meta,
-    data: diagnostics as unknown as IDiagnosticResponse[],
+    },
+    data: data as unknown as IDiagnosticResponse[],
   };
 };
 
@@ -460,11 +403,11 @@ const updateDiagnostic = async (
     where: { id: diagnosticId },
     include: { user: true },
   });
+  console.log(diagnosticData);
 
   if (!existingDiagnostic) {
     throw new ApiError(httpStatus.NOT_FOUND, 'ক্লিনিক খুঁজে পাওয়া যায়নি!');
   }
-
   // ২. ইউজার আপডেট ডাটা তৈরি
   const userData: any = {};
   if (diagnosticData.user) {
@@ -546,7 +489,7 @@ const deleteDiagnostic = async (id: string, user: { id: string; role: string }):
 export const DiagnosticService = {
   createDiagnostic,
   getDiagnostics,
-
+  getAllAreaDiagnosticsName,
   getDiagnosticByIdentifier,
 
   getDiagnosticManagerStats,

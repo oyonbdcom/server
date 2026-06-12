@@ -200,32 +200,52 @@ model Department {
 }
 
 model Doctor {
-  id             String         @id @default(cuid())
-  userId         String         @unique
-  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  slug           String         @unique
+  id             String            @id @default(cuid())
+  userId         String            @unique
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug           String            @unique
   appointments   Appointment[]
   specialization String
   departmentId   String
-  department     Department     @relation(fields: [departmentId], references: [id])
+  department     Department        @relation(fields: [departmentId], references: [id])
   website        String?
   position       String?
-  education      Json?
-  hospital       String?        @db.Text
-  gender         Gender?        @default(MALE)
-  experience     Int            @default(0)
-  isEmergency    Boolean        @default(false)
+  educations     DoctorEducation[]
+  hospital       String?           @db.Text
+  gender         Gender?           @default(MALE)
+  experience     Int               @default(0)
+  isEmergency    Boolean           @default(false)
   areas          DoctorArea[]
   memberships    Membership[]
   reviews        DoctorReview[]
-  averageRating  Float          @default(0.0)
-  reviewsCount   Int            @default(0)
+  averageRating  Float             @default(0.0)
+  reviewsCount   Int               @default(0)
   staffs         Staff[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   @@index([slug])
   @@index([departmentId])
+}
+
+model DoctorEducation {
+  id String @id @default(cuid())
+
+  doctorId String
+  doctor   Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  degree      String
+  institution String
+  subject     String?
+  passingYear Int?
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([doctorId])
+  @@index([degree])
 }
 
 model DoctorArea {

@@ -33,28 +33,6 @@ export const DIAGNOSTIC_SELECT = {
       },
     },
   },
-  memberships: {
-    select: {
-      doctor: {
-        select: {
-          user: {
-            select: { name: true },
-          },
-          slug: true,
-          department: {
-            select: {
-              name: true,
-            },
-          },
-          gender: true,
-        },
-      },
-      id: true,
-      fee: true,
-      discount: true,
-      createdAt: true,
-    },
-  },
 } satisfies Prisma.DiagnosticSelect;
 export interface IDiagnosticFilterRequest {
   searchTerm?: string;

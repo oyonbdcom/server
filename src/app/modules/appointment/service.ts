@@ -108,121 +108,187 @@ const getPatientAppointments = async (userId: string, options: IOptions) => {
     data: appointments,
   };
 };
-const getMyAppointments = async (
+
+// doctor dashbaord
+const getDoctorDashboardAppointments = async (
   user: JwtPayload,
   filters: IGetAppointmentsFilters,
   options: IOptions,
 ): Promise<IGenericResponse<IAppointmentResponse[], IAppointmentStats>> => {
-  const { searchTerm, date, status, doctorId, diagId, area, isEmergency } = filters;
+  const { date, diagId } = filters;
+  const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
+
+  const andConditions: Prisma.AppointmentWhereInput[] = [];
+
+  // ১. প্রথমেই ডাক্তারের আইডি নিশ্চিত করা (Security: ডাক্তার যেন অন্য কারো ডাটা না দেখে)
+  const doctor = await prisma.doctor.findUnique({
+    where: { userId: user.id },
+    select: { id: true },
+  });
+
+  if (!doctor) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Doctor profile not found');
+  }
+
+  // ডাক্তারের নিজস্ব আইডি দিয়ে ফিল্টার বাধ্যতামূলক
+  andConditions.push({ doctorId: doctor.id });
+
+  if (diagId) andConditions.push({ diagId });
+
+  if (date) {
+    andConditions.push({
+      appointmentDate: {
+        gte: bdStartOfDay(date),
+        lte: bdEndOfDay(date),
+      },
+    });
+  }
+
+  const whereConditions: Prisma.AppointmentWhereInput = { AND: andConditions };
+
+  // ৩. কোয়েরি রান করা (Promise.all ব্যবহার করে পারফরম্যান্স বাড়ানো)
+  const [result, total, todayAppointments, pending, scheduled, completed, cancelled] =
+    await Promise.all([
+      prisma.appointment.findMany({
+        where: whereConditions,
+        skip,
+        take: limit,
+        orderBy: [{ isEmergency: 'desc' }, { appointmentDate: 'desc' }],
+        include: appointmentPopulate,
+      }),
+      prisma.appointment.count({ where: whereConditions }),
+      prisma.appointment.count({
+        where: {
+          ...whereConditions,
+          appointmentDate: { gte: bdStartOfDay(new Date()), lte: bdEndOfDay(new Date()) },
+        },
+      }),
+      prisma.appointment.count({
+        where: { ...whereConditions, status: AppointmentStatus.PENDING },
+      }),
+      prisma.appointment.count({
+        where: { ...whereConditions, status: AppointmentStatus.SCHEDULED },
+      }),
+      prisma.appointment.count({
+        where: { ...whereConditions, status: AppointmentStatus.COMPLETED },
+      }),
+      prisma.appointment.count({
+        where: { ...whereConditions, status: AppointmentStatus.CANCELLED },
+      }),
+    ]);
+
+  return {
+    meta: { total, page, limit, totalPage: Math.ceil(total / limit) },
+    data: result as unknown as IAppointmentResponse[],
+    stats: { total, todayAppointments, pending, scheduled, completed, cancelled },
+  };
+};
+
+const getAreaManagerAppointments = async (
+  user: JwtPayload,
+  filters: IGetAppointmentsFilters,
+  options: IOptions,
+): Promise<IGenericResponse<IAppointmentResponse[], IAppointmentStats>> => {
+  const { date, status, doctorId, diagId, isEmergency } = filters;
+  const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
+
+  // ১. এরিয়া ম্যানেজার ভ্যালিডেশন (সরাসরি ডেটাবেজ চেক)
+  const manager = await prisma.manager.findUnique({
+    where: { userId: user.id },
+    select: { areaId: true },
+  });
+
+  if (!manager) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Manager profile not found');
+  }
+
+  // ২. ফিল্টার কন্ডিশন তৈরি
+  const andConditions: Prisma.AppointmentWhereInput[] = [];
+
+  // এরিয়া বা ইমার্জেন্সি কন্ডিশন
+  if (isEmergency) {
+    andConditions.push({ isEmergency: true });
+  } else {
+    andConditions.push({ diagnostic: { areaId: manager.areaId } });
+  }
+
+  // অন্যান্য ডাইনামিক ফিল্টার
+  if (status) andConditions.push({ status });
+  if (doctorId) andConditions.push({ doctorId });
+  if (diagId) andConditions.push({ diagId });
+
+  if (date) {
+    andConditions.push({
+      appointmentDate: { gte: bdStartOfDay(date), lte: bdEndOfDay(date) },
+    });
+  }
+
+  const whereConditions: Prisma.AppointmentWhereInput = { AND: andConditions };
+
+  // ৩. কোয়েরি এক্সিকিউশন
+  const [result, statsData] = await Promise.all([
+    prisma.appointment.findMany({
+      where: whereConditions,
+      skip,
+      take: limit,
+      orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { appointmentDate: 'desc' },
+      include: appointmentPopulate,
+    }),
+    // সব স্ট্যাটাস একসাথে কাউন্ট করার জন্য groupBy ব্যবহার করুন (অত্যন্ত দ্রুত)
+    prisma.appointment.groupBy({
+      by: ['status'],
+      where: whereConditions,
+      _count: { status: true },
+    }),
+  ]);
+
+  // ৪. টোটাল অ্যাপয়েন্টমেন্ট কাউন্ট (meta এর জন্য)
+  const total = await prisma.appointment.count({ where: whereConditions });
+
+  // ৫. স্ট্যাটাস ফরম্যাটিং
+  const stats = {
+    total,
+
+    pending: statsData.find((s) => s.status === 'PENDING')?._count.status || 0,
+    scheduled: statsData.find((s) => s.status === 'SCHEDULED')?._count.status || 0,
+    completed: statsData.find((s) => s.status === 'COMPLETED')?._count.status || 0,
+    cancelled: statsData.find((s) => s.status === 'CANCELLED')?._count.status || 0,
+  };
+
+  return {
+    meta: { total, page, limit, totalPage: Math.ceil(total / limit) },
+    data: result as unknown as IAppointmentResponse[],
+    stats,
+  };
+};
+
+const getDiagnosticAppointments = async (
+  user: JwtPayload,
+  filters: IGetAppointmentsFilters,
+  options: IOptions,
+): Promise<IGenericResponse<IAppointmentResponse[], IAppointmentStats>> => {
+  const { date, status, doctorId } = filters;
 
   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
 
   const andConditions: Prisma.AppointmentWhereInput[] = [];
 
-  // =====================================================
-  // ROLE BASED SCOPING
-  // =====================================================
+  const diagnostic = await prisma.diagnostic.findUnique({
+    where: {
+      userId: user.id,
+    },
+    select: {
+      id: true,
+    },
+  });
 
-  switch (user.role) {
-    // -----------------------------------------
-    // DIAGNOSTIC MANAGER
-    // -----------------------------------------
-    case UserRole.DIAGNOSTIC: {
-      const diagnostic = await prisma.diagnostic.findUnique({
-        where: {
-          userId: user.id,
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      if (!diagnostic) {
-        throw new ApiError(httpStatus.NOT_FOUND, 'diagnostic profile not found');
-      }
-
-      andConditions.push({
-        diagId: diagnostic.id,
-      });
-
-      break;
-    }
-
-    // -----------------------------------------
-    // AREA MANAGER
-    // -----------------------------------------
-    case UserRole.AREA_MANAGER: {
-      const manager = await prisma.manager.findUnique({
-        where: { userId: user.id },
-        select: { areaId: true },
-      });
-
-      if (!manager) {
-        throw new ApiError(httpStatus.NOT_FOUND, 'Manager profile not found');
-      }
-
-      // ১. এরিয়া ম্যানেজারের এরিয়ার কন্ডিশন
-      const areaCondition = {
-        diagnostic: {
-          areaId: manager.areaId,
-        },
-      };
-
-      if (isEmergency) {
-        andConditions.push({
-          isEmergency: true,
-        });
-      } else {
-        andConditions.push(areaCondition);
-      }
-
-      break;
-    }
-
-    // -----------------------------------------
-    // STAFF
-    // -----------------------------------------
-    case UserRole.STAFF: {
-      const staff = await prisma.staff.findUnique({
-        where: {
-          userId: user.id,
-        },
-
-        select: {
-          diagId: true,
-          assignedDoctorId: true,
-          staffType: true,
-        },
-      });
-
-      if (!staff) {
-        throw new ApiError(httpStatus.NOT_FOUND, 'Staff profile not found');
-      }
-
-      // =====================================================
-      // RECEPTIONIST
-      // only own created appointments
-      // =====================================================
-
-      andConditions.push({
-        createdById: user.id,
-      });
-
-      // =====================================================
-      // COORDINATOR
-      // own appointments + assigned doctor appointments
-      // =====================================================
-
-      break;
-    }
-
-    // -----------------------------------------
-    // ADMIN
-    // -----------------------------------------
-    case UserRole.ADMIN:
-    default:
-      break;
+  if (!diagnostic) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'diagnostic profile not found');
   }
+
+  andConditions.push({
+    diagId: diagnostic.id,
+  });
 
   // =====================================================
   // FILTERS
@@ -239,67 +305,6 @@ const getMyAppointments = async (
   if (doctorId) {
     andConditions.push({
       doctorId,
-    });
-  }
-
-  // diagnostic
-  if (diagId) {
-    andConditions.push({
-      diagId,
-    });
-  }
-
-  // area
-  if (area) {
-    andConditions.push({
-      diagnostic: {
-        area: {
-          slug: area,
-        },
-      },
-    });
-  }
-
-  // search
-  if (searchTerm) {
-    andConditions.push({
-      OR: [
-        {
-          patientName: {
-            contains: searchTerm,
-            mode: 'insensitive',
-          },
-        },
-
-        {
-          contactNumber: {
-            contains: searchTerm,
-            mode: 'insensitive',
-          },
-        },
-
-        {
-          doctor: {
-            user: {
-              name: {
-                contains: searchTerm,
-                mode: 'insensitive',
-              },
-            },
-          },
-        },
-
-        {
-          diagnostic: {
-            user: {
-              name: {
-                contains: searchTerm,
-                mode: 'insensitive',
-              },
-            },
-          },
-        },
-      ],
     });
   }
 
@@ -327,7 +332,13 @@ const getMyAppointments = async (
   // =====================================================
   // QUERY
   // =====================================================
+  const orderBy: Prisma.AppointmentOrderByWithRelationInput[] = [];
 
+  if (sortBy && sortOrder) {
+    orderBy.push({ [sortBy]: sortOrder } as Prisma.AppointmentOrderByWithRelationInput);
+  } else {
+    orderBy.push({ appointmentDate: 'desc' });
+  }
   const [result, total, todayAppointments, pending, scheduled, completed, cancelled] =
     await Promise.all([
       prisma.appointment.findMany({
@@ -336,7 +347,7 @@ const getMyAppointments = async (
         skip,
         take: limit,
 
-        orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { appointmentDate: 'desc' },
+        orderBy,
 
         include: appointmentPopulate,
       }),
@@ -403,6 +414,465 @@ const getMyAppointments = async (
     },
   };
 };
+const getReceptionistAppointments = async (
+  user: JwtPayload,
+  filters: IGetAppointmentsFilters,
+  options: IOptions,
+) => {
+  const { date, status, doctorId } = filters;
+  const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
+
+  const andConditions: Prisma.AppointmentWhereInput[] = [];
+
+  // =========================
+  // STAFF INFO
+  // =========================
+  const staff = await prisma.staff.findUnique({
+    where: { userId: user.id, staffType: 'RECEPTIONIST' },
+    select: {
+      diagId: true,
+      staffType: true,
+    },
+  });
+
+  if (!staff) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Staff profile not found');
+  }
+
+  andConditions.push({
+    createdById: user.id,
+  });
+
+  // =========================
+  // FILTERS
+  // =========================
+  if (status) {
+    andConditions.push({ status });
+  }
+
+  if (doctorId) {
+    andConditions.push({ doctorId });
+  }
+
+  const dateFilter = date
+    ? {
+        appointmentDate: {
+          gte: bdStartOfDay(date),
+          lte: bdEndOfDay(date),
+        },
+      }
+    : null;
+
+  if (dateFilter) {
+    andConditions.push(dateFilter);
+  }
+
+  const whereConditions: Prisma.AppointmentWhereInput = andConditions.length
+    ? { AND: andConditions }
+    : {};
+
+  // =========================
+  // ORDER
+  // =========================
+  const orderBy: Prisma.AppointmentOrderByWithRelationInput[] =
+    sortBy && sortOrder ? [{ [sortBy]: sortOrder } as any] : [{ appointmentDate: 'desc' }];
+
+  // =========================
+  // QUERY
+  // =========================
+  const [result, total] = await Promise.all([
+    prisma.appointment.findMany({
+      where: whereConditions,
+      skip,
+      take: limit,
+      orderBy,
+      include: appointmentPopulate,
+    }),
+
+    prisma.appointment.count({
+      where: whereConditions,
+    }),
+  ]);
+
+  // =========================
+  // STATS (safe date handling)
+  // =========================
+  const todayFilter = date
+    ? {
+        appointmentDate: {
+          gte: bdStartOfDay(date),
+          lte: bdEndOfDay(date),
+        },
+      }
+    : undefined;
+
+  const baseWhere = whereConditions;
+
+  const [todayAppointments, pending, scheduled, completed, cancelled] = await Promise.all([
+    prisma.appointment.count({
+      where: todayFilter ? { AND: [baseWhere, todayFilter] } : baseWhere,
+    }),
+
+    prisma.appointment.count({
+      where: { AND: [baseWhere, { status: AppointmentStatus.PENDING }] },
+    }),
+
+    prisma.appointment.count({
+      where: { AND: [baseWhere, { status: AppointmentStatus.SCHEDULED }] },
+    }),
+
+    prisma.appointment.count({
+      where: { AND: [baseWhere, { status: AppointmentStatus.COMPLETED }] },
+    }),
+
+    prisma.appointment.count({
+      where: { AND: [baseWhere, { status: AppointmentStatus.CANCELLED }] },
+    }),
+  ]);
+
+  return {
+    meta: {
+      total,
+      page,
+      limit,
+      totalPage: Math.ceil(total / limit),
+    },
+    data: result as any[],
+    stats: {
+      total,
+      todayAppointments,
+      pending,
+      scheduled,
+      completed,
+      cancelled,
+    },
+  };
+};
+// const getMyAppointments = async (
+//   user: JwtPayload,
+//   filters: IGetAppointmentsFilters,
+//   options: IOptions,
+// ): Promise<IGenericResponse<IAppointmentResponse[], IAppointmentStats>> => {
+//   const { searchTerm, date, status, doctorId, diagId, area, isEmergency } = filters;
+
+//   const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
+
+//   const andConditions: Prisma.AppointmentWhereInput[] = [];
+
+//   // =====================================================
+//   // ROLE BASED SCOPING
+//   // =====================================================
+
+//   switch (user.role) {
+//     // -----------------------------------------
+//     // DIAGNOSTIC MANAGER
+//     // -----------------------------------------
+//     case UserRole.DIAGNOSTIC: {
+//       const diagnostic = await prisma.diagnostic.findUnique({
+//         where: {
+//           userId: user.id,
+//         },
+//         select: {
+//           id: true,
+//         },
+//       });
+
+//       if (!diagnostic) {
+//         throw new ApiError(httpStatus.NOT_FOUND, 'diagnostic profile not found');
+//       }
+
+//       andConditions.push({
+//         diagId: diagnostic.id,
+//       });
+
+//       break;
+//     }
+//     case UserRole.DOCTOR: {
+//       const doctor = await prisma.doctor.findUnique({
+//         where: {
+//           userId: user.id,
+//         },
+//         select: {
+//           id: true,
+//         },
+//       });
+
+//       if (!doctor) {
+//         throw new ApiError(httpStatus.NOT_FOUND, 'diagnostic profile not found');
+//       }
+
+//       andConditions.push({
+//         doctorId: doctor.id,
+//       });
+
+//       break;
+//     }
+
+//     // -----------------------------------------
+//     // AREA MANAGER
+//     // -----------------------------------------
+//     case UserRole.AREA_MANAGER: {
+//       const manager = await prisma.manager.findUnique({
+//         where: { userId: user.id },
+//         select: { areaId: true },
+//       });
+
+//       if (!manager) {
+//         throw new ApiError(httpStatus.NOT_FOUND, 'Manager profile not found');
+//       }
+
+//       // ১. এরিয়া ম্যানেজারের এরিয়ার কন্ডিশন
+//       const areaCondition = {
+//         diagnostic: {
+//           areaId: manager.areaId,
+//         },
+//       };
+
+//       if (isEmergency) {
+//         andConditions.push({
+//           isEmergency: true,
+//         });
+//       } else {
+//         andConditions.push(areaCondition);
+//       }
+
+//       break;
+//     }
+
+//     // -----------------------------------------
+//     // STAFF
+//     // -----------------------------------------
+//     case UserRole.STAFF: {
+//       const staff = await prisma.staff.findUnique({
+//         where: {
+//           userId: user.id,
+//         },
+
+//         select: {
+//           diagId: true,
+//           assignedDoctorId: true,
+//           staffType: true,
+//         },
+//       });
+
+//       if (!staff) {
+//         throw new ApiError(httpStatus.NOT_FOUND, 'Staff profile not found');
+//       }
+
+//       // =====================================================
+//       // RECEPTIONIST
+//       // only own created appointments
+//       // =====================================================
+
+//       andConditions.push({
+//         createdById: user.id,
+//       });
+
+//       // =====================================================
+//       // COORDINATOR
+//       // own appointments + assigned doctor appointments
+//       // =====================================================
+
+//       break;
+//     }
+
+//     // -----------------------------------------
+//     // ADMIN
+//     // -----------------------------------------
+//     case UserRole.ADMIN:
+//     default:
+//       break;
+//   }
+
+//   // =====================================================
+//   // FILTERS
+//   // =====================================================
+
+//   // status
+//   if (status) {
+//     andConditions.push({
+//       status,
+//     });
+//   }
+
+//   // doctor
+//   if (doctorId) {
+//     andConditions.push({
+//       doctorId,
+//     });
+//   }
+
+//   // diagnostic
+//   if (diagId) {
+//     andConditions.push({
+//       diagId,
+//     });
+//   }
+
+//   // area
+//   if (area) {
+//     andConditions.push({
+//       diagnostic: {
+//         area: {
+//           slug: area,
+//         },
+//       },
+//     });
+//   }
+
+//   // search
+//   if (searchTerm) {
+//     andConditions.push({
+//       OR: [
+//         {
+//           patientName: {
+//             contains: searchTerm,
+//             mode: 'insensitive',
+//           },
+//         },
+
+//         {
+//           contactNumber: {
+//             contains: searchTerm,
+//             mode: 'insensitive',
+//           },
+//         },
+
+//         {
+//           doctor: {
+//             user: {
+//               name: {
+//                 contains: searchTerm,
+//                 mode: 'insensitive',
+//               },
+//             },
+//           },
+//         },
+
+//         {
+//           diagnostic: {
+//             user: {
+//               name: {
+//                 contains: searchTerm,
+//                 mode: 'insensitive',
+//               },
+//             },
+//           },
+//         },
+//       ],
+//     });
+//   }
+
+//   // date
+//   if (date) {
+//     andConditions.push({
+//       appointmentDate: {
+//         gte: bdStartOfDay(date),
+//         lte: bdEndOfDay(date),
+//       },
+//     });
+//   }
+
+//   // =====================================================
+//   // FINAL WHERE
+//   // =====================================================
+
+//   const whereConditions: Prisma.AppointmentWhereInput =
+//     andConditions.length > 0
+//       ? {
+//           AND: andConditions,
+//         }
+//       : {};
+
+//   // =====================================================
+//   // QUERY
+//   // =====================================================
+//   const orderBy: Prisma.AppointmentOrderByWithRelationInput[] = [];
+
+//   if (user?.role === 'DOCTOR') {
+//     orderBy.push({ isEmergency: 'desc' });
+//   }
+
+//   if (sortBy && sortOrder) {
+//     orderBy.push({ [sortBy]: sortOrder } as Prisma.AppointmentOrderByWithRelationInput);
+//   } else {
+//     orderBy.push({ appointmentDate: 'desc' });
+//   }
+//   const [result, total, todayAppointments, pending, scheduled, completed, cancelled] =
+//     await Promise.all([
+//       prisma.appointment.findMany({
+//         where: whereConditions,
+
+//         skip,
+//         take: limit,
+
+//         orderBy,
+
+//         include: appointmentPopulate,
+//       }),
+
+//       prisma.appointment.count({
+//         where: whereConditions,
+//       }),
+//       prisma.appointment.count({
+//         where: {
+//           ...whereConditions,
+
+//           appointmentDate: {
+//             gte: bdStartOfDay(date),
+//             lte: bdEndOfDay(date),
+//           },
+//         },
+//       }),
+//       prisma.appointment.count({
+//         where: {
+//           ...whereConditions,
+//           status: AppointmentStatus.PENDING,
+//         },
+//       }),
+
+//       prisma.appointment.count({
+//         where: {
+//           ...whereConditions,
+//           status: AppointmentStatus.SCHEDULED,
+//         },
+//       }),
+
+//       prisma.appointment.count({
+//         where: {
+//           ...whereConditions,
+//           status: AppointmentStatus.COMPLETED,
+//         },
+//       }),
+
+//       prisma.appointment.count({
+//         where: {
+//           ...whereConditions,
+//           status: AppointmentStatus.CANCELLED,
+//         },
+//       }),
+//     ]);
+
+//   return {
+//     meta: {
+//       total,
+//       page,
+//       limit,
+//       totalPage: Math.ceil(total / limit),
+//     },
+
+//     data: result as unknown as IAppointmentResponse[],
+
+//     stats: {
+//       total,
+//       todayAppointments,
+//       pending,
+//       scheduled,
+//       completed,
+//       cancelled,
+//     },
+//   };
+// };
 
 const getCoordinatorDashboard = async (
   userId: string,
@@ -924,7 +1394,7 @@ const emergencyCreateAppointment = async (
  */
 const createAppointmentByDiagnosticStaff = async (payload: any, staffUserId: string) => {
   const { patientName, phoneNumber, ptAge, doctorId, address, membershipId } = payload;
-  console.log(doctorId);
+
   // ================= STAFF & diagnostic INFO =================
   const staffUser = await prisma.user.findUnique({
     where: { id: staffUserId },
@@ -1294,6 +1764,7 @@ const updateAppointment = async (
 
   return updatedResult as unknown as IAppointmentResponse;
 };
+
 const updateDoctorSession = async (
   userId: string,
   status: DoctorSessionStatus,
@@ -1397,7 +1868,10 @@ const updateDoctorSession = async (
   return updatedSession as unknown as IAppointmentResponse;
 };
 export const AppointmentService = {
-  getMyAppointments,
+  getDoctorDashboardAppointments,
+  getAreaManagerAppointments,
+  getDiagnosticAppointments,
+  getReceptionistAppointments,
   createAppointment,
   acceptEmergencyAppointment,
   createAppointmentByDiagnosticStaff,

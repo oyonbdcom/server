@@ -29,19 +29,41 @@ router.post(
 //   AppointmentsController.getManagerAreaAppointments,
 // );
 
-// Admin routes
+// ***************
+//     doctor dashboard appointments
+// ******************
 router.get(
-  '/',
+  '/doctor-dashboard',
   protect,
-  restrictTo(
-    UserRole.DIAGNOSTIC,
-    UserRole.ADMIN,
-    UserRole.PATIENT,
-    UserRole.AREA_MANAGER,
-    UserRole?.STAFF,
-  ),
-  AppointmentsController.getMyAppointments,
+  restrictTo(UserRole.DOCTOR),
+  AppointmentsController.getDoctorDashboardAppointments,
 );
+//
+router.get(
+  '/area-manager',
+  protect,
+  restrictTo(UserRole.AREA_MANAGER),
+  AppointmentsController.getAreaManagerAppointments,
+);
+router.get(
+  '/diagnostic-dashboard',
+  protect,
+  restrictTo(UserRole.DIAGNOSTIC),
+  AppointmentsController.getDiagnosticAppointments,
+);
+// router.get(
+//   '/diagnostic-dashboard',
+//   protect,
+//   restrictTo(
+//     UserRole.DIAGNOSTIC,
+//     UserRole.DOCTOR,
+//     UserRole.ADMIN,
+//     UserRole.PATIENT,
+//     UserRole.AREA_MANAGER,
+//     UserRole?.STAFF,
+//   ),
+//   AppointmentsController.getDiagnosticAppointments,
+// );
 router.get(
   '/patient-appointments',
   protect,
@@ -53,6 +75,12 @@ router.get(
   protect,
   restrictTo(UserRole.STAFF, UserRole.ADMIN),
   AppointmentsController.getCoordinatorDashboard,
+);
+router.get(
+  '/receptionist',
+  protect,
+  restrictTo(UserRole.STAFF, UserRole.ADMIN),
+  AppointmentsController.getReceptionistAppointments,
 );
 // ======================================================
 // ROUTE

@@ -23,6 +23,7 @@ const createMembership = catchAsync(async (req, res) => {
     data: result || null,
   });
 });
+// for public diagnostic center
 const getMembershipsBySlug = catchAsync(async (req, res) => {
   const slug = req.params.slug as string;
 
@@ -39,7 +40,24 @@ const getMembershipsBySlug = catchAsync(async (req, res) => {
     data: result.data,
   });
 });
-const getDiagnosticMemberDoctors = catchAsync(async (req, res) => {
+const getMembershipsById = catchAsync(async (req, res) => {
+  const userId = req.user?.id as string;
+
+  // পেজিনেশন এবং ফিল্টারিং অপশন পিক করা
+  const options = pick(req.query, ['limit', 'page', 'sortBy', 'sortOrder']);
+
+  const result = await MembershipService.getMembershipsById(userId, options);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'মেম্বারশিপ ডাটা সফলভাবে পাওয়া গিয়েছে',
+    meta: result.meta,
+    data: result.data,
+  });
+});
+
+const getDiagnosticDoctors = catchAsync(async (req, res) => {
   const userId = req.user?.id;
 
   if (!userId) {
@@ -52,11 +70,7 @@ const getDiagnosticMemberDoctors = catchAsync(async (req, res) => {
   // ✅ filters (সব একসাথে)
   const filters = pick(req.query, ['searchTerm', 'diagId', 'doctorId']);
 
-  const result = await MembershipService.getDiagnosticMemberDoctors(
-    userId,
-    filters,
-    paginationOptions,
-  );
+  const result = await MembershipService.getDiagnosticDoctors(userId, filters, paginationOptions);
 
   sendResponse<IMembershipResponse[]>(res, {
     statusCode: httpStatus.OK,
@@ -64,6 +78,24 @@ const getDiagnosticMemberDoctors = catchAsync(async (req, res) => {
     message: 'আপনার তৈরি করা মেম্বারশিপগুলো সফলভাবে পাওয়া গেছে',
     meta: result?.meta,
     data: result?.data,
+  });
+});
+
+// ***************
+//     doctor dashboard diagnostics name for filter
+// ******************
+
+const getDoctorDiagnosticsName = catchAsync(async (req, res) => {
+  const userId = req?.user?.id as string;
+
+  const result = await MembershipService.getDoctorDiagnosticsName(userId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'মেম্বারশিপ ডাটা সফলভাবে পাওয়া গিয়েছে',
+
+    data: result.data,
   });
 });
 
@@ -100,7 +132,9 @@ const deleteMembership = catchAsync(async (req, res) => {
 
 export const MembershipController = {
   createMembership,
-  getDiagnosticMemberDoctors,
+  getDiagnosticDoctors,
+  getDoctorDiagnosticsName,
+  getMembershipsById,
   updateMemberships,
   getMembershipsBySlug,
   deleteMembership,

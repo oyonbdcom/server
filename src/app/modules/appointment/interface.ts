@@ -47,7 +47,7 @@ export interface IAppointmentResponse {
 }
 export type IAppointmentStats = {
   total: number;
-  todayAppointments: number;
+  todayAppointments?: number;
   scheduled: number;
   completed: number;
   cancelled: number;

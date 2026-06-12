@@ -25,7 +25,7 @@ export interface IDoctorResponse {
   // Optional Fields from Schema
   website: string | null;
   position: string | null;
-  education: any;
+  educations: any;
   hospital: string | null;
   gender: Gender | null;
   experience: number;
@@ -57,7 +57,13 @@ export interface IDoctorStats {
   inactive: number;
   departments: IDepartmentStat[];
 }
-
+export interface IDoctorAppointmentStats {
+  totalAppointments: number;
+  todayAppointments: number;
+  pendingAppointments: number;
+  completedAppointments: number;
+  cancelledAppointments: number;
+}
 export interface IDoctorMembership {
   id: string;
   fee: number;

@@ -58,6 +58,8 @@ const getDiagnosticByIdentifier = catchAsync(async (req, res) => {
     data: result,
   });
 });
+
+// area manager
 const getAllAreaDiagnostics = catchAsync(async (req, res) => {
   const paginationOptions = pick(req.query, paginationFields);
   const filter = pick(req.query, DiagnosticFilterableFields);
@@ -72,6 +74,19 @@ const getAllAreaDiagnostics = catchAsync(async (req, res) => {
     message: 'আপনার এরিয়ার ক্লিনিকগুলো সফলভাবে আনা হয়েছে',
     meta: result?.meta || undefined,
     data: result?.data || null,
+  });
+});
+const getAllAreaDiagnosticsName = catchAsync(async (req, res) => {
+  const userId = (req as any).user.id;
+
+  const result = await DiagnosticService.getAllAreaDiagnosticsName(userId);
+
+  sendResponse<IDiagnosticResponse[]>(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'আপনার এরিয়ার ক্লিনিকগুলো সফলভাবে আনা হয়েছে',
+
+    data: result || null,
   });
 });
 
@@ -129,6 +144,7 @@ const deleteDiagnostic = catchAsync(async (req, res) => {
 export const DiagnosticController = {
   createDiagnostic,
   getDiagnostics,
+  getAllAreaDiagnosticsName,
   getDiagnosticManagerStats,
   deleteDiagnostic,
   getDiagnosticByIdentifier,

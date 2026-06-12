@@ -24,10 +24,16 @@ router.get(
 );
 
 router.get(
-  '/area-diagnostic',
+  '/area-diagnostics',
   protect,
   restrictTo(UserRole.AREA_MANAGER),
   DiagnosticController.getAllAreaDiagnostics,
+);
+router.get(
+  '/area-diagnostics-name',
+  protect,
+  restrictTo(UserRole.AREA_MANAGER),
+  DiagnosticController.getAllAreaDiagnosticsName,
 );
 router.get('/:identifier', protectOptional, DiagnosticController.getDiagnosticByIdentifier);
 

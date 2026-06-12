@@ -18,9 +18,27 @@ router.get(
   '/diagnostic-doctors',
   protect,
   restrictTo(UserRole.DIAGNOSTIC),
-  MembershipController.getDiagnosticMemberDoctors,
+  MembershipController.getDiagnosticDoctors,
 );
+
+// ***************
+//     doctor dashboard diagnostics name for filter
+// ******************
+
+router.get(
+  '/doctor-diagnostics-name',
+  protect,
+  restrictTo(UserRole.DOCTOR),
+  MembershipController.getDoctorDiagnosticsName,
+);
+
 router.get('/slug/:slug', MembershipController.getMembershipsBySlug);
+router.get(
+  '/diagnostic',
+  protect,
+  restrictTo(UserRole.DIAGNOSTIC),
+  MembershipController.getMembershipsById,
+);
 
 router.patch(
   '/:membershipId',

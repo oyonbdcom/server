@@ -34,13 +34,13 @@ export const DOCTOR_SELECT = {
   experience: true,
   gender: true,
   hospital: true,
+  isEmergency: true,
   position: true,
   website: true,
   averageRating: true,
   reviewsCount: true,
-  education: true,
-  createdAt: true,
-  updatedAt: true,
+  educations: true,
+
   user: {
     select: {
       id: true,
@@ -118,13 +118,21 @@ export const AREA_DOCTOR_SELECT = {
   specialization: true,
   averageRating: true,
   reviewsCount: true,
-
+  hospital: true,
+  website: true,
+  isEmergency: true,
+  experience: true,
+  position: true,
+  gender: true,
   user: {
     select: {
       id: true,
       name: true,
-
+      phoneNumber: true,
+      image: true,
+      role: true,
       deactivate: true,
+      isPhoneVerified: true,
     },
   },
 } satisfies Prisma.DoctorSelect;

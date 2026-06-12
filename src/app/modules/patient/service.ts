@@ -81,7 +81,6 @@ const getPatientByUserId = async (userId: string): Promise<IPatientResponse | nu
       createdAt: true,
       updatedAt: true,
 
-      // 🔥 all patient profiles
       patient: true,
     },
   });
@@ -93,34 +92,7 @@ const getPatientByUserId = async (userId: string): Promise<IPatientResponse | nu
   return user as any;
 };
 
-// const deletePatient = async (userId: string): Promise<IPatientResponse> => {
-//   // 1️⃣ Check if Patient exists
-//   const existingPatient = await prisma.patient.findUnique({
-//     where: { userId },
-//     select: { id: true, userId: true },
-//   });
-
-//   if (!existingPatient) {
-//     throw new ApiError(httpStatus.NOT_FOUND, 'Patient not found');
-//   }
-
-//   const updatedData = await prisma.patient.update({
-//     where: { userId },
-//     data: {
-//       user: {
-//         update: { deactivate: false },
-//       },
-//     },
-//     select: PATIENT_SELECT,
-//   });
-
-//   return updatedData as IPatientResponse;
-// };
-
 export const PatientService = {
-  // getPatients,
-  // getPatientStats,
   getPatientByUserId,
   updatePatient,
-  // deletePatient,
 };

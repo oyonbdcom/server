@@ -70,18 +70,103 @@ const getPatientAppointments = catchAsync(async (req, res) => {
   });
 });
 
-const getMyAppointments = catchAsync(async (req, res) => {
+const getDoctorDashboardAppointments = catchAsync(async (req, res) => {
   const user = req.user as JwtPayload;
   const paginationOptions = pick(req.query, paginationFields);
 
   const filters = pick(req.query, AppointmentsFilterableFields);
 
-  const result = await AppointmentService.getMyAppointments(user, filters, paginationOptions);
+  const result = await AppointmentService.getDoctorDashboardAppointments(
+    user,
+    filters,
+    paginationOptions,
+  );
+
+  sendResponse<IAppointmentResponse[], IAppointmentStats>(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Doctor dashboard Appointments retrieved successfully',
+    meta: result?.meta || undefined,
+    data: result?.data || null,
+    stats: result?.stats,
+  });
+});
+
+const getReceptionistAppointments = catchAsync(async (req, res) => {
+  const user = req.user as JwtPayload;
+  const paginationOptions = pick(req.query, paginationFields);
+
+  const filters = pick(req.query, AppointmentsFilterableFields);
+
+  const result = await AppointmentService.getReceptionistAppointments(
+    user,
+    filters,
+    paginationOptions,
+  );
+
+  sendResponse<IAppointmentResponse[], IAppointmentStats>(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Receptionist Appointments retrieved successfully',
+    meta: result?.meta || undefined,
+    data: result?.data || null,
+    stats: result?.stats,
+  });
+});
+const getDiagnosticAppointments = catchAsync(async (req, res) => {
+  const user = req.user as JwtPayload;
+  const paginationOptions = pick(req.query, paginationFields);
+
+  const filters = pick(req.query, AppointmentsFilterableFields);
+
+  const result = await AppointmentService.getDiagnosticAppointments(
+    user,
+    filters,
+    paginationOptions,
+  );
 
   sendResponse<IAppointmentResponse[], IAppointmentStats>(res, {
     statusCode: httpStatus.OK,
     success: true,
     message: 'Appointments retrieved successfully',
+    meta: result?.meta || undefined,
+    data: result?.data || null,
+    stats: result?.stats,
+  });
+});
+// const getMyAppointments = catchAsync(async (req, res) => {
+//   const user = req.user as JwtPayload;
+//   const paginationOptions = pick(req.query, paginationFields);
+
+//   const filters = pick(req.query, AppointmentsFilterableFields);
+
+//   const result = await AppointmentService.getMyAppointments(user, filters, paginationOptions);
+
+//   sendResponse<IAppointmentResponse[], IAppointmentStats>(res, {
+//     statusCode: httpStatus.OK,
+//     success: true,
+//     message: 'Appointments retrieved successfully',
+//     meta: result?.meta || undefined,
+//     data: result?.data || null,
+//     stats: result?.stats,
+//   });
+// });
+const getAreaManagerAppointments = catchAsync(async (req, res) => {
+  const user = req.user as JwtPayload;
+  const paginationOptions = pick(req.query, paginationFields);
+
+  const filters = pick(req.query, AppointmentsFilterableFields);
+
+  const result = await AppointmentService.getAreaManagerAppointments(
+    user,
+    filters,
+    paginationOptions,
+  );
+
+  sendResponse<IAppointmentResponse[], IAppointmentStats>(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Area Manager Appointments retrieved successfully',
     meta: result?.meta || undefined,
     data: result?.data || null,
     stats: result?.stats,
@@ -199,8 +284,11 @@ const updateAppointment = catchAsync(async (req, res) => {
 });
 
 export const AppointmentsController = {
+  getDoctorDashboardAppointments,
+  getAreaManagerAppointments,
   getPatientAppointments,
-  getMyAppointments,
+  getDiagnosticAppointments,
+  getReceptionistAppointments,
   rejectEmergency,
   requestEmergency,
   acceptEmergency,

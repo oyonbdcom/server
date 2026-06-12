@@ -49,7 +49,27 @@ const getDiagnosticReviews = catchAsync(async (req, res) => {
   const options = pick(req.query, paginationFields);
 
   // 3. Call the service
-  const result = await ReviewsService.getSingleTargetReviews(doctorId, filters, options);
+  const result = await ReviewsService.getDiagnosticReviews(doctorId, filters, options);
+
+  // 4. Send standard response
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Reviews fetched successfully',
+    meta: result.meta,
+    data: result.data,
+  });
+});
+const getDiagnosticProfileReviews = catchAsync(async (req, res) => {
+  // 1. Extract path parameters
+  const userId = req.user?.id as string;
+
+  // 2. Extract query filters and pagination options
+  const filters = pick(req.query, ReviewFilterableFields);
+  const options = pick(req.query, paginationFields);
+
+  // 3. Call the service
+  const result = await ReviewsService.getDiagnosticProfileReviews(userId, filters, options);
 
   // 4. Send standard response
   sendResponse(res, {
@@ -100,7 +120,7 @@ const deleteReview = catchAsync(async (req, res) => {
 export const ReviewsController = {
   replyToReview,
   createReviews,
-
+  getDiagnosticProfileReviews,
   getDiagnosticReviews,
   updateReview,
 

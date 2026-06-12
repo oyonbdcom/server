@@ -100,9 +100,9 @@ const createReview = async (
 };
 
 // doctor review replay
-const replyToReview = async (reviewId: string, userId: string, content: string) => {
-  const review = await prisma.doctorReview.findUnique({
-    where: { id: reviewId },
+const replyToReview = async (diagReviewId: string, userId: string, content: string) => {
+  const review = await prisma.diagnosticReview.findUnique({
+    where: { id: diagReviewId },
     include: {
       reviewer: {
         select: {
@@ -118,14 +118,14 @@ const replyToReview = async (reviewId: string, userId: string, content: string) 
     throw new ApiError(httpStatus.NOT_FOUND, 'Review not found');
   }
 
-  const result = await prisma.doctorReviewReply.upsert({
-    where: { reviewId },
+  const result = await prisma.diagnosticReviewReply.upsert({
+    where: { diagReviewId },
     update: {
       content,
     },
     create: {
       content,
-      reviewId,
+      diagReviewId,
       repliedById: userId,
     },
   });
@@ -133,10 +133,8 @@ const replyToReview = async (reviewId: string, userId: string, content: string) 
   return result;
 };
 
-const getSingleTargetReviews = async (
+const getDiagnosticReviews = async (
   targetId: string,
-
-  // 1. Add filter parameters to the signature
   filter: {
     searchTerm?: string;
     rating?: string | number;
@@ -202,7 +200,78 @@ const getSingleTargetReviews = async (
     data: reviews as unknown as IReviewResponse[],
   };
 };
+const getDiagnosticProfileReviews = async (
+  userId: string,
+  filter: {
+    searchTerm?: string;
+    rating?: string | number;
+    status?: string;
+  },
+  options: IOptions,
+): Promise<IGenericResponse<IReviewResponse[]>> => {
+  const { page, limit, skip, sortBy, sortOrder } = paginationCalculator(options);
+  const { searchTerm, rating, status } = filter;
 
+  // ১. ইউজার ও ডায়াগনস্টিক আইডি খুঁজে বের করা
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { diagnostic: { select: { id: true } } },
+  });
+
+  if (!user?.diagnostic?.id) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'ডায়াগনস্টিক প্রোফাইল পাওয়া যায়নি!');
+  }
+
+  // ২. ফিল্টার কন্ডিশন তৈরি
+  const andConditions: Prisma.DiagnosticReviewWhereInput[] = [
+    { diagId: 'cmq3f9acp000aueq4b9t3li1h' },
+  ];
+
+  if (rating && rating !== 'all') {
+    andConditions.push({ rating: Number(rating) });
+  }
+
+  if (searchTerm) {
+    andConditions.push({
+      OR: [
+        { comment: { contains: searchTerm, mode: 'insensitive' } },
+        { reviewer: { name: { contains: searchTerm, mode: 'insensitive' } } },
+      ],
+    });
+  }
+
+  const whereCondition: Prisma.DiagnosticReviewWhereInput = { AND: andConditions };
+
+  // ৩. ডাটাবেজ কুয়েরি
+  const [reviews, total] = await Promise.all([
+    prisma.diagnosticReview.findMany({
+      where: whereCondition,
+      skip,
+      take: limit,
+      orderBy: sortBy && sortOrder ? { [sortBy]: sortOrder } : { createdAt: 'desc' },
+      select: {
+        id: true,
+        rating: true,
+        comment: true,
+        createdAt: true,
+        status: true,
+        reviewer: { select: { name: true, image: true, id: true } },
+        reply: true,
+      },
+    }),
+    prisma.diagnosticReview.count({ where: whereCondition }),
+  ]);
+
+  return {
+    meta: {
+      page,
+      limit,
+      total,
+      totalPage: Math.ceil(total / limit),
+    },
+    data: reviews as unknown as IReviewResponse[],
+  };
+};
 const updateReview = async (
   reviewId: string,
   data: UpdateReviewInput,
@@ -224,7 +293,7 @@ const updateReview = async (
     }
 
     // ৩. RBAC: শুধুমাত্র রিভিউ দাতা বা এডমিন আপডেট করতে পারবে
-    if (user.role !== UserRole?.AREA_MANAGER && user.id !== existing.reviewerId) {
+    if (user.role !== UserRole?.DIAGNOSTIC && user.id !== existing.reviewerId) {
       throw new ApiError(httpStatus.FORBIDDEN, 'Unauthorized to update this review');
     }
 
@@ -272,8 +341,8 @@ const deleteReview = async (reviewId: string) => {
 export const ReviewsService = {
   replyToReview,
   createReview,
-
-  getSingleTargetReviews,
+  getDiagnosticProfileReviews,
+  getDiagnosticReviews,
   updateReview,
   deleteReview,
 };

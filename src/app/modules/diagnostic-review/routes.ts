@@ -21,12 +21,18 @@ router.post(
   ReviewsController.replyToReview,
 );
 
+router.get(
+  '/profile',
+  protect,
+  restrictTo(UserRole.DIAGNOSTIC),
+  ReviewsController.getDiagnosticProfileReviews,
+);
 router.get('/:digId', ReviewsController.getDiagnosticReviews);
 
 router.patch(
   '/:reviewId',
   protect,
-  restrictTo(UserRole?.ADMIN, UserRole?.PATIENT, UserRole?.AREA_MANAGER),
+  restrictTo(UserRole?.ADMIN, UserRole?.PATIENT, UserRole?.DIAGNOSTIC, UserRole?.AREA_MANAGER),
   zodValidate(DiagnosticReviewZodValidation.updateReviewSchema),
   ReviewsController.updateReview,
 );

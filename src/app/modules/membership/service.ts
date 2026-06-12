@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import { IOptions, paginationCalculator } from '../../../helper/pagination';
 import prisma from '../../../prisma/client';
 import ApiError from '../../../utils/apiError';
+import { generate } from './constats';
 import { CreateMembershipInput, IMembershipResponse } from './interface';
 
 // current logged in   user
@@ -89,7 +90,7 @@ export const createMembership = async (
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'মেম্বারশিপ তৈরি করার সময় সমস্যা হয়েছে।');
   }
 };
-// ১. মেম্বারশিপ লিস্ট দেখা
+// ১. membership list of single diagnostic
 const getMembershipsBySlug = async (
   slug: string,
   options: IOptions,
@@ -131,40 +132,9 @@ const getMembershipsBySlug = async (
   const [memberships, total] = await Promise.all([
     prisma.membership.findMany({
       where: whereConditions,
-
+      select: generate,
       skip,
       take: limit,
-      select: {
-        doctor: {
-          select: {
-            id: true,
-            slug: true,
-            specialization: true,
-            user: { select: { name: true, image: true } },
-            department: {
-              select: {
-                name: true,
-              },
-            },
-            gender: true,
-            averageRating: true,
-            reviewsCount: true,
-          },
-        },
-        diagnostic: {
-          select: {
-            id: true,
-            user: { select: { name: true } },
-            area: true,
-            address: true,
-            slug: true,
-            averageRating: true,
-            reviewsCount: true,
-          },
-        },
-        fee: true,
-        schedules: true,
-      },
     }),
     prisma.membership.count({
       where: whereConditions, // এখানেও whereConditions ব্যবহার করুন
@@ -183,7 +153,83 @@ const getMembershipsBySlug = async (
     data: memberships as unknown as IMembershipResponse[],
   };
 };
-export const getDiagnosticMemberDoctors = async (
+const getMembershipsById = async (
+  userId: string,
+  options: IOptions,
+): Promise<IGenericResponse<IMembershipResponse[]>> => {
+  const { page, limit, skip } = paginationCalculator(options);
+
+  // ১. স্লাগ চেক করা
+  const diagnostic = await prisma.diagnostic.findFirst({
+    where: {
+      userId,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!diagnostic) {
+    throw new ApiError(
+      httpStatus.NOT_FOUND,
+      'প্রদত্ত id দিয়ে কোনো ডক্টর বা ক্লিনিক পাওয়া যায়নি',
+    );
+  }
+
+  const andConditions: Prisma.MembershipWhereInput[] = [];
+
+  // ২. ডক্টর অথবা ক্লিনিক ফিল্টার সেট করা
+
+  andConditions.push({ diagId: diagnostic?.id });
+
+  const whereConditions: Prisma.MembershipWhereInput = {
+    AND: andConditions,
+  };
+
+  const [memberships, total] = await Promise.all([
+    prisma.membership.findMany({
+      where: whereConditions,
+      select: {
+        id: true,
+        fee: true,
+        discount: true,
+        doctor: {
+          select: {
+            department: {
+              select: { name: true },
+            },
+            user: {
+              select: { name: true },
+            },
+          },
+        },
+        doctorId: true,
+        schedules: true,
+      },
+      skip,
+      take: limit,
+    }),
+    prisma.membership.count({
+      where: whereConditions, // এখানেও whereConditions ব্যবহার করুন
+    }),
+  ]);
+
+  const totalPage = Math.ceil(total / limit);
+
+  return {
+    meta: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPage,
+    },
+    data: memberships as unknown as IMembershipResponse[],
+  };
+};
+
+// for doctor dashbaord
+
+const getDiagnosticDoctors = async (
   userId: string,
   filters: {
     searchTerm?: string;
@@ -354,6 +400,47 @@ export const getDiagnosticMemberDoctors = async (
   };
 };
 
+const getDoctorDiagnosticsName = async (userId: string) => {
+  // ১. ডাক্তার আইডি খুঁজে বের করা
+  const exitingDoctor = await prisma.doctor.findFirst({
+    where: { userId },
+    select: { id: true },
+  });
+
+  if (!exitingDoctor) {
+    return { data: [] }; // ডাক্তার না থাকলে খালি ডাটা ফেরত দেওয়া ভালো
+  }
+
+  // ২. মেম্বারশিপ এবং ডায়াগনস্টিক ডাটা আনা
+  const memberships = await prisma.membership.findMany({
+    where: {
+      doctorId: exitingDoctor.id,
+    },
+    select: {
+      id: true,
+      diagnostic: {
+        select: {
+          id: true,
+
+          user: {
+            select: { name: true },
+          },
+        },
+      },
+    },
+  });
+
+  // ৩. ডাটা ফরম্যাট বা ম্যাপ করা
+  const formattedData = memberships.map((item) => ({
+    diagnosticId: item.diagnostic?.id,
+    diagnosticName: item.diagnostic?.user?.name || 'Unknown Center',
+  }));
+
+  return {
+    data: formattedData,
+  };
+};
+
 // const getMyDoctors = async ({ userId }: { userId: string }) => {
 //   // ১. ইউজারের ক্লিনিক প্রোফাইল খুঁজে বের করা
 //   const existingdiagnostic = await prisma.diagnostic.findUnique({
@@ -413,11 +500,12 @@ const updateMembership = async (
     );
   }
 
-  return await prisma.membership.update({
+  const result = await prisma.membership.update({
     where: { id: membershipId },
     data: payload,
     include: { doctor: { include: { user: true } } },
   });
+  return result as any;
 };
 
 // ৩. মেম্বারশিপ ডিলিট করা
@@ -431,7 +519,9 @@ const deleteMembership = async (membershipId: string, userId: string) => {
 
 export const MembershipService = {
   createMembership,
-  getDiagnosticMemberDoctors,
+  getMembershipsById,
+  getDiagnosticDoctors,
+  getDoctorDiagnosticsName,
   updateMembership,
   getMembershipsBySlug,
   deleteMembership,

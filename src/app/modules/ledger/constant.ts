@@ -38,7 +38,7 @@ export const DOCTOR_SELECT = {
   website: true,
   averageRating: true,
   reviewsCount: true,
-  education: true,
+  educations: true,
   createdAt: true,
   updatedAt: true,
   user: {
